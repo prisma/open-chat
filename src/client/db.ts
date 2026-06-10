@@ -13,8 +13,10 @@ export type UiState = {
   id: "app";
   selectedChatId: string;
   composerText: string;
+  chatSearch: string;
   modelSearch: string;
   selectedModel: string;
+  modelPickerOpen: boolean;
   sidebarOpen: boolean;
   authMode: "sign-in" | "sign-up";
   isSigningOut: boolean;
@@ -67,9 +69,11 @@ const initialUiState: UiState = {
   id: "app",
   selectedChatId: "",
   composerText: "",
+  chatSearch: "",
   modelSearch: "",
   selectedModel: "openai/gpt-4.1-mini",
-  sidebarOpen: true,
+  modelPickerOpen: false,
+  sidebarOpen: false,
   authMode: "sign-in",
   isSigningOut: false,
   streamStatus: "idle",
@@ -122,9 +126,11 @@ export function resetClientState() {
   updateUi((state) => {
     state.selectedChatId = "";
     state.composerText = "";
+    state.chatSearch = "";
     state.modelSearch = "";
     state.selectedModel = "openai/gpt-4.1-mini";
-    state.sidebarOpen = true;
+    state.modelPickerOpen = false;
+    state.sidebarOpen = false;
     state.isSigningOut = false;
     state.streamStatus = "idle";
     state.streamError = undefined;
