@@ -57,6 +57,9 @@ async function ensureUserStream(userId: string) {
 
   await streamsFetch(`/v1/stream/${encodeURIComponent(streamName)}`, {
     method: "PUT",
+    headers: {
+      "content-type": "application/json",
+    },
   });
   createdStreams.add(streamName);
   return streamName;

@@ -169,11 +169,13 @@ async function streamEvents(request: Request, chatId: string) {
               offset,
               updatedAt: new Date().toISOString(),
             });
+          } else if (batch.events.length === 0) {
+            send("heartbeat", { chatId, offset });
           }
         }
       } catch (error) {
         if (!request.signal.aborted) {
-          send("error", {
+          send("stream-error", {
             message:
               error instanceof Error ? error.message : "Stream proxy failed",
           });
@@ -190,6 +192,7 @@ async function streamEvents(request: Request, chatId: string) {
   return new Response(body, {
     headers: {
       "cache-control": "no-store",
+      "connection": "keep-alive",
       "content-type": "text/event-stream",
       "x-accel-buffering": "no",
     },

@@ -4,6 +4,7 @@ import { routeApi } from "./routes";
 
 const server = Bun.serve({
   port: env.PORT,
+  idleTimeout: 255,
   development: process.env.NODE_ENV !== "production",
   routes: {
     "/api/*": routeApi,
@@ -12,4 +13,3 @@ const server = Bun.serve({
 });
 
 console.log(`Open Chat running at ${server.url}`);
-
