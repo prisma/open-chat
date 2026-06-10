@@ -1,5 +1,8 @@
 # Open Chat
 
+> [!TIP]
+> **Try it live at [oss.chat](https://oss.chat)** — no sign-up required, you get a guest budget and can start chatting right away.
+
 A local-first, multi-model AI chat app — and a working demonstration of how [Prisma Streams](https://github.com/prisma/streams), [Prisma Postgres](https://www.prisma.io/postgres), and Prisma Next fit together in a real application.
 
 ![Open Chat — durable streaming chat over Prisma Streams](docs/screenshot.png)
@@ -66,6 +69,38 @@ bun run dev
 ```
 
 Open <http://localhost:3000> — you'll be signed in as a guest automatically and can start chatting.
+
+## Deploy to Prisma Compute
+
+The live instance at [oss.chat](https://oss.chat) runs on [Prisma Compute](https://www.prisma.io) as two apps in one project: the chat server and the durable Streams service it talks to. Deploying your own takes a few minutes with the [Prisma CLI](https://www.npmjs.com/package/@prisma/cli).
+
+```bash
+# 1. Sign in and create a project (this also provisions a Prisma Postgres database)
+bunx @prisma/cli@latest auth login
+bunx @prisma/cli@latest project create my-open-chat
+
+# 2. Create the tables in the project's primary database
+bunx @prisma/cli@latest database connection create <database-id>   # prints DATABASE_URL
+DATABASE_URL=<that-url> bun run db:init
+
+# 3. Deploy the Streams service (pick any long random key)
+bunx @prisma/cli@latest app deploy --app Streams \
+  --framework bun --entry src/streams-app/index.ts --http-port 8080 \
+  --env STREAMS_API_KEY=<random-key> --no-db --prod --yes
+
+# 4. Deploy the chat app, pointing it at the database and the Streams URL from step 3
+bunx @prisma/cli@latest app deploy --app open-chat \
+  --framework bun --entry src/start.ts --http-port 3000 \
+  --env DATABASE_URL=<that-url> \
+  --env STREAMS_URL=<streams-app-url> \
+  --env STREAMS_API_KEY=<random-key> \
+  --env BETTER_AUTH_SECRET=<random-secret> \
+  --env OPENROUTER_API_KEY=<your-openrouter-key> \
+  --env APP_ORIGIN=<chat-app-url> \
+  --no-db --prod --yes
+```
+
+That's it — the CLI builds locally, uploads, and the deployment is live in seconds. Secrets live only in Compute's env config, never in the repo. (On the very first deploy you don't know the app URL yet: deploy once, then set `APP_ORIGIN` to the printed URL and deploy again. Subsequent deploys keep their env vars.)
 
 ## Project layout
 
