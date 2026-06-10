@@ -12,3 +12,4 @@ output/
 .open-chat/
 .prisma-dev/
 *.log
+.prisma/
