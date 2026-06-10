@@ -4,7 +4,7 @@
 
 Open Chat is a prominent learning example for Prisma Streams. The system should make durable, resumable chat streaming visible in the codebase without hiding it behind a framework or a bespoke state manager.
 
-The app runs fully locally except for OpenRouter model calls. Local development uses Prisma Postgres through `prisma dev` and Prisma Streams through `@prisma/streams-local`.
+The app runs fully locally except for OpenRouter model calls. Local development uses Prisma Postgres through `prisma dev`. For durable streams, the app can either proxy to the Prisma Dev Streams endpoint via `STREAMS_URL` or start `@prisma/streams-local` itself when `STREAMS_URL` is omitted.
 
 ## Runtime Shape
 
@@ -57,6 +57,8 @@ Reasoning:
 
 The browser never talks to Prisma Streams directly. It calls Bun endpoints that validate the Better Auth session, resolve user ownership, and then proxy appends/reads to the user stream.
 
+Streams are created with `content-type: application/json`. This is intentional: Prisma Streams fixes stream format at creation time, and byte-mode streams reject JSON appends and JSON reads. Appends use `Stream-Key: chat:<chatId>`.
+
 ## Message Event Contract
 
 Stream entries are JSON events. The routing key is carried in the durable stream header, and the body remains self-describing:
@@ -88,6 +90,8 @@ The client materializes these events into TanStack DB message rows. Assistant me
 7. The browser consumes `/api/chats/:id/events` through Bun, which performs authenticated long-poll reads against Prisma Streams using the chat routing key.
 8. The client tracks the last durable offset per chat so refresh/reconnect resumes without losing tokens.
 
+The SSE proxy emits heartbeats during idle long-poll cycles and the Bun server uses a longer `idleTimeout` so durable streams stay connected while waiting for the next event.
+
 ## TanStack DB State
 
 TanStack DB is the only application state layer in the browser:
@@ -115,11 +119,11 @@ Only authenticated users can:
 
 Expected local services:
 
-- Postgres: `bunx prisma dev --name open-chat --detach`
-- Prisma Streams: embedded with `startLocalDurableStreamsServer` from `@prisma/streams-local`
+- Postgres and Streams: `bun run db:dev`
+- Active local URLs: `DATABASE_URL=... bunx prisma dev ls`
 - App server: `bun --hot src/server/index.ts`
 
-The repo must not commit `.env` or secrets. `.env.example` documents required variables.
+During verification, Prisma Dev reported Postgres on `localhost:51297` and Streams on `http://127.0.0.1:51299/v1/stream/prisma-wal`, so the app used `STREAMS_URL=http://127.0.0.1:51299`. The repo must not commit `.env` or secrets. `.env.example` documents required variables.
 
 ## Sources
 
@@ -134,4 +138,3 @@ The repo must not commit `.env` or secrets. `.env.example` documents required va
 - TanStack DB overview and query collections: https://tanstack.com/db/latest/docs/overview
 - TanStack DB local-only collections: https://tanstack.com/db/latest/docs/collections/local-only-collection
 - OpenRouter TypeScript SDK and streaming: https://openrouter.ai/docs/client-sdks/typescript/overview
-
