@@ -1,3 +1,6 @@
+// Folds the durable event log into per-message rows. The server (history
+// endpoint) and the client (live SSE feed) share this logic, so a replayed
+// chat and a live-streamed chat always materialize identically.
 import {
   type ChatMessage,
   type MessageEvent,

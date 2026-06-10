@@ -1,9 +1,13 @@
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { App } from "./App";
 import "./styles.css";
 
-const root = document.getElementById("root");
-if (!root) throw new Error("Missing root element");
+const container = document.getElementById("root");
+if (!container) throw new Error("Missing root element");
 
-createRoot(root).render(<App />);
+// Under `bun --hot` this module re-runs on every hot reload; reuse the
+// existing React root instead of calling createRoot() on it twice.
+const globalForRoot = globalThis as { reactRoot?: Root };
+const root = (globalForRoot.reactRoot ??= createRoot(container));
 
+root.render(<App />);

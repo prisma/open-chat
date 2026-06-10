@@ -1,12 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { MessageEvent } from "../src/shared/contracts";
+import type {
+  MessageEvent,
+  MessageEventInput,
+} from "../src/shared/contracts";
 import { materializeMessages } from "../src/shared/messages";
-
-type MessageEventInput = MessageEvent extends infer Event
-  ? Event extends MessageEvent
-    ? Omit<Event, "id" | "createdAt">
-    : never
-  : never;
 
 function event(input: MessageEventInput): MessageEvent {
   return {

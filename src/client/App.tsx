@@ -642,6 +642,11 @@ function MessageView({
         {message.status === "completed" ? (
           <div className="msg-meta">
             {timeLink}
+            {message.model ? (
+              <span className="mono msg-model" title={message.model}>
+                {modelShortName(message.model)}
+              </span>
+            ) : null}
             <span
               className="mono"
               title={offsetLabel ? `Durable · offset ${offsetLabel}` : "Durable"}

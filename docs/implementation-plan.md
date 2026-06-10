@@ -1,5 +1,7 @@
 # Implementation Plan
 
+This is the historical build plan, kept for reference. Phase notes describe the state of the code when each phase landed; where the code has since moved on, the current state is called out inline.
+
 ## Status
 
 Implemented and verified locally on June 10, 2026. The final implementation keeps app data local in Prisma Dev Postgres and Prisma Streams, with OpenRouter as the only external service.
@@ -11,6 +13,7 @@ Implemented and verified locally on June 10, 2026. The final implementation keep
 ## Phase 2: Metadata And Auth
 
 - Completed: Better Auth tables, `Chat` metadata, Prisma ORM 7 with `@prisma/adapter-pg`, email/password auth, `/api/auth/*`, and session-protected route helpers.
+- Since then: the data layer migrated from Prisma ORM 7 to Prisma Next (`@prisma-next/postgres`), sharing one `pg.Pool` with Better Auth. Anonymous guest sessions and usage budgets were added after the initial plan.
 
 ## Phase 3: Prisma Streams
 

@@ -72,6 +72,15 @@ export const messageEventSchema = z.discriminatedUnion("type", [
 
 export type MessageEvent = z.infer<typeof messageEventSchema>;
 
+// A MessageEvent before the server stamps `id` and `createdAt`. The
+// conditional type distributes over the union so each variant loses the
+// stamped fields individually.
+export type MessageEventInput = MessageEvent extends infer Event
+  ? Event extends MessageEvent
+    ? Omit<Event, "id" | "createdAt">
+    : never
+  : never;
+
 export const usageSummarySchema = z.object({
   inputTokens: z.number().int().nonnegative(),
   outputTokens: z.number().int().nonnegative(),

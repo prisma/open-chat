@@ -771,6 +771,13 @@ textarea {
   justify-content: flex-end;
 }
 
+.msg-model {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .msg-meta .icon-button {
   width: 22px;
   height: 22px;

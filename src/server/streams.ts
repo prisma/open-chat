@@ -1,3 +1,9 @@
+// Thin client for the Prisma Streams durable-streams HTTP API.
+//
+// Each user gets one append-only JSON stream (streamNameForUser); each chat
+// is a routing key inside it (chatRoutingKey). Every append is durable
+// before the UI ever sees it, and reads can resume from any offset — that
+// is what lets a chat survive refreshes, reconnects, and server restarts.
 import { createHash } from "node:crypto";
 import { startLocalDurableStreamsServer } from "@prisma/streams-local";
 import { env } from "./env";

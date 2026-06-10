@@ -1,9 +1,16 @@
+// HTTP API for chats, messages, models, and usage.
+//
+// Two stores back these routes: chat metadata lives in Postgres (queried
+// through Prisma Next), while message history is an append-only event log
+// in Prisma Streams — one stream per user, one routing key per chat. See
+// docs/architecture.md for the full picture.
 import type { ChatMessages } from "@openrouter/sdk/models";
 import {
   createChatSchema,
   renameChatSchema,
   sendMessageSchema,
   type MessageEvent,
+  type MessageEventInput,
 } from "../shared/contracts";
 import { materializeMessages } from "../shared/messages";
 import { db } from "../prisma/db";
@@ -37,12 +44,6 @@ import {
 const defaultModel = "openai/gpt-4.1-mini";
 const encoder = new TextEncoder();
 
-type MessageEventInput = MessageEvent extends infer Event
-  ? Event extends MessageEvent
-    ? Omit<Event, "id" | "createdAt">
-    : never
-  : never;
-
 function chatDto(chat: {
   id: string;
   title: string;
@@ -59,9 +60,7 @@ function chatDto(chat: {
   };
 }
 
-function newEvent(
-  event: MessageEventInput,
-): MessageEvent {
+function newEvent(event: MessageEventInput): MessageEvent {
   return {
     ...event,
     id: `evt_${crypto.randomUUID()}`,

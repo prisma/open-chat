@@ -1,3 +1,7 @@
+// TanStack DB is the only state layer in the browser. Server-backed data
+// (chats, models, usage) lives in query collections; messages and stream
+// checkpoints are local-only collections fed by the durable event stream;
+// all remaining UI state is a single local row in uiCollection.
 import { createCollection, localOnlyCollectionOptions } from "@tanstack/db";
 import { QueryClient } from "@tanstack/query-core";
 import { queryCollectionOptions } from "@tanstack/query-db-collection";

@@ -23,6 +23,7 @@ Postgres stores metadata that must be queried relationally:
 - Better Auth `user`, `session`, `account`, and `verification` records.
 - `Chat` rows for listing, naming, sorting, and selecting chats.
 - Chat preferences such as selected model.
+- `Usage` rows: per-user, per-month token counts and cost in micro-USD, powering the spend meter and request budgets.
 
 Prisma Streams stores chat message events:
 
@@ -98,8 +99,10 @@ TanStack DB is the only application state layer in the browser:
 
 - `chatsCollection`: query collection backed by `/api/chats`.
 - `modelsCollection`: query collection backed by `/api/models`.
+- `usageCollection`: query collection backed by `/api/usage`, refreshed after every completed assistant turn.
 - `messagesCollection`: local-only collection populated from durable stream events.
-- `uiCollection`: local-only collection for selected chat, composer draft, model filter, sidebar state, and stream offsets.
+- `checkpointsCollection`: local-only collection tracking the last durable offset per chat, so reconnects resume rather than replay.
+- `uiCollection`: a single local row for selected chat, composer draft, search filters, sidebar state, and stream status.
 
 React components render with `useLiveQuery`. Event handlers mutate collections or call API methods that update collections after server confirmation.
 
@@ -107,7 +110,9 @@ React components render with `useLiveQuery`. Event handlers mutate collections o
 
 Better Auth is mounted at `/api/auth/*`. Every protected app API calls `auth.api.getSession({ headers })` and fails closed when the session is missing.
 
-Only authenticated users can:
+First-time visitors are signed in automatically as anonymous guests (Better Auth's `anonymous` plugin), so the app is usable without registration; the auth screen is opt-in. Guests get a small lifetime budget, registered users a monthly one — `src/server/usage.ts` enforces both before each model call.
+
+Only authenticated users (including guests) can:
 
 - list their chats
 - create or rename chats
@@ -131,7 +136,7 @@ During verification, Prisma Dev reported Postgres on `localhost:51297` and Strea
 - Prisma Streams Durable Streams HTTP protocol: https://github.com/prisma/streams/blob/main/docs/durable-streams-spec.md
 - Prisma Streams local development: https://github.com/prisma/streams/blob/main/docs/local-dev.md
 - Prisma `dev` local Postgres command: https://www.prisma.io/docs/cli/dev
-- Prisma ORM 7 client setup: https://www.prisma.io/docs/orm/prisma-client/setup-and-configuration/introduction
+- Prisma Next contract workflow: [`../prisma-next.md`](../prisma-next.md)
 - Better Auth Prisma adapter: https://www.better-auth.com/docs/adapters/prisma
 - Better Auth session management: https://www.better-auth.com/docs/concepts/session-management
 - Bun full-stack dev server: https://bun.sh/docs/bundler/fullstack

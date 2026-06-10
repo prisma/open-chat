@@ -1,3 +1,7 @@
+// Live message delivery: one EventSource per selected chat, consuming the
+// server's SSE proxy over Prisma Streams. Events are applied to the
+// messages collection as they arrive; `checkpoint` events record the last
+// durable offset so a reconnect resumes exactly where the stream left off.
 import type {
   MessageEvent as DurableMessageEvent,
   StreamCheckpoint,
