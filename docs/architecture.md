@@ -11,7 +11,7 @@ The app runs fully locally except for OpenRouter model calls. Local development 
 - Bun owns the HTTP server, static HTML import, API routing, and the authenticated stream proxy.
 - React renders the browser UI, bundled by Bun from `src/client/index.html`.
 - Better Auth owns sign-up, sign-in, sign-out, session cookies, and server-side session validation.
-- Prisma ORM 7 owns Postgres metadata access through the generated `prisma-client` output and `@prisma/adapter-pg`.
+- Prisma Next owns Postgres metadata access through the emitted contract (`src/prisma/contract.prisma`) and the `@prisma-next/postgres` runtime, sharing one `pg.Pool` with Better Auth.
 - Prisma Streams owns append-only chat message history and assistant streaming events.
 - TanStack DB owns browser state via query collections, local-only collections, and live queries.
 - OpenRouter is the only external service.

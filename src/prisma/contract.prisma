@@ -1,40 +1,33 @@
-generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
-}
-
-datasource db {
-  provider = "postgresql"
-}
+// use prisma-next
 
 model User {
   id            String    @id
   name          String
-  email         String
-  emailVerified Boolean   @default(false)
+  email         String    @unique
+  // NOTE: no @default(false) — prisma-next 0.13.0 drops falsy literal defaults
+  // on emit (PN-CLI-4003 at db init). Better Auth always sets this on insert.
+  emailVerified Boolean
   image         String?
   createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  updatedAt     temporal.updatedAt()
   sessions      Session[]
   accounts      Account[]
   chats         Chat[]
 
-  @@unique([email])
   @@map("user")
 }
 
 model Session {
   id        String   @id
   expiresAt DateTime
-  token     String
+  token     String   @unique
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt temporal.updatedAt()
   ipAddress String?
   userAgent String?
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([token])
   @@index([userId])
   @@map("session")
 }
@@ -53,7 +46,7 @@ model Account {
   scope                 String?
   password              String?
   createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  updatedAt             temporal.updatedAt()
 
   @@index([userId])
   @@map("account")
@@ -65,7 +58,7 @@ model Verification {
   value      String
   expiresAt  DateTime
   createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  updatedAt  temporal.updatedAt()
 
   @@index([identifier])
   @@map("verification")
@@ -78,9 +71,8 @@ model Chat {
   title     String
   model     String
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt temporal.updatedAt()
 
-  @@index([userId, updatedAt(sort: Desc)])
+  @@index([userId, updatedAt])
   @@map("chat")
 }
-

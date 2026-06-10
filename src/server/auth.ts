@@ -1,19 +1,13 @@
 import { betterAuth } from "better-auth";
-import { prismaAdapter } from "better-auth/adapters/prisma";
+import { pool } from "../prisma/db";
 import { env } from "./env";
-import { prisma } from "./prisma";
 
 export const auth = betterAuth({
   baseURL: env.APP_ORIGIN,
   secret: env.BETTER_AUTH_SECRET,
-  database: prismaAdapter(prisma, {
-    provider: "postgresql",
-  }),
+  database: pool,
   emailAndPassword: {
     enabled: true,
-  },
-  experimental: {
-    joins: true,
   },
   trustedOrigins: [env.APP_ORIGIN],
 });
@@ -27,4 +21,3 @@ export async function getSession(request: Request) {
     headers: request.headers,
   });
 }
-

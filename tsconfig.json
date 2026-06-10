@@ -6,9 +6,9 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "module": "Preserve",
+    "module": "preserve",
     "moduleDetection": "force",
-    "moduleResolution": "Bundler",
+    "moduleResolution": "bundler",
     "noEmit": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
@@ -21,7 +21,11 @@
     },
     "strict": true,
     "target": "ES2023",
-    "types": ["bun-types"]
+    "types": [
+      "bun-types",
+      "node"
+    ],
+    "resolveJsonModule": true
   },
-  "include": ["src", "prisma.config.ts", "tests"]
+  "include": ["src", "prisma-next.config.ts", "tests"]
 }

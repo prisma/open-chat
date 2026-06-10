@@ -6,8 +6,8 @@ import {
   type MessageEvent,
 } from "../shared/contracts";
 import { materializeMessages } from "../shared/messages";
+import { db } from "../prisma/db";
 import { auth } from "./auth";
-import { prisma } from "./prisma";
 import {
   HttpError,
   assertMethod,
@@ -68,9 +68,7 @@ function createChatTitle(prompt: string) {
 }
 
 async function requireOwnedChat(userId: string, chatId: string) {
-  const chat = await prisma.chat.findFirst({
-    where: { id: chatId, userId },
-  });
+  const chat = await db.orm.Chat.where({ id: chatId, userId }).first();
 
   if (!chat) {
     throw new HttpError(404, "Chat not found");
@@ -85,22 +83,22 @@ async function listChats(request: Request) {
 
   if (request.method === "POST") {
     const input = createChatSchema.parse(await parseJson(request));
-    const chat = await prisma.chat.create({
-      data: {
-        id: `chat_${crypto.randomUUID()}`,
-        userId: user.id,
-        title: input.title ?? "New chat",
-        model: input.model ?? defaultModel,
-      },
+    const now = new Date();
+    const chat = await db.orm.Chat.create({
+      id: `chat_${crypto.randomUUID()}`,
+      userId: user.id,
+      title: input.title ?? "New chat",
+      model: input.model ?? defaultModel,
+      createdAt: now,
+      updatedAt: now,
     });
 
     return json(chatDto(chat), 201);
   }
 
-  const chats = await prisma.chat.findMany({
-    where: { userId: user.id },
-    orderBy: { updatedAt: "desc" },
-  });
+  const chats = await db.orm.Chat.where({ userId: user.id })
+    .orderBy((chat) => chat.updatedAt.desc())
+    .all();
 
   return json(chats.map(chatDto));
 }
@@ -111,15 +109,18 @@ async function updateChat(request: Request, chatId: string) {
 
   if (request.method === "PATCH") {
     const input = renameChatSchema.parse(await parseJson(request));
-    const chat = await prisma.chat.update({
-      where: { id: chatId },
-      data: { title: input.title },
+    const chat = await db.orm.Chat.where({ id: chatId }).update({
+      title: input.title,
+      updatedAt: new Date(),
     });
+    if (!chat) {
+      throw new HttpError(404, "Chat not found");
+    }
     return json(chatDto(chat));
   }
 
   if (request.method === "DELETE") {
-    await prisma.chat.delete({ where: { id: chatId } });
+    await db.orm.Chat.where({ id: chatId }).delete();
     return noContent();
   }
 
@@ -217,10 +218,7 @@ async function sendMessage(request: Request, chatId: string) {
   const model = input.model ?? chat.model;
 
   if (model !== chat.model) {
-    await prisma.chat.update({
-      where: { id: chat.id },
-      data: { model },
-    });
+    await db.orm.Chat.where({ id: chat.id }).update({ model });
   }
 
   const userMessageId = `msg_${crypto.randomUUID()}`;
@@ -254,13 +252,10 @@ async function sendMessage(request: Request, chatId: string) {
 
   const renamedTitle =
     chat.title === "New chat" ? createChatTitle(input.text) : chat.title;
-  await prisma.chat.update({
-    where: { id: chat.id },
-    data: {
-      title: renamedTitle,
-      model,
-      updatedAt: new Date(),
-    },
+  await db.orm.Chat.where({ id: chat.id }).update({
+    title: renamedTitle,
+    model,
+    updatedAt: new Date(),
   });
 
   const { events } = await loadAllMessageEvents(user.id, chat.id);
@@ -318,9 +313,8 @@ async function sendMessage(request: Request, chatId: string) {
           usage,
         }),
       );
-      await prisma.chat.update({
-        where: { id: chat.id },
-        data: { updatedAt: new Date() },
+      await db.orm.Chat.where({ id: chat.id }).update({
+        updatedAt: new Date(),
       });
     } catch (error) {
       await appendMessageEvent(
