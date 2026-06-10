@@ -8,6 +8,7 @@ const envSchema = z.object({
   OPENROUTER_APP_NAME: z.string().default("Open Chat Local"),
   OPENROUTER_SITE_URL: z.string().url().default("http://localhost:3000"),
   PORT: z.coerce.number().int().positive().default(3000),
+  STREAMS_API_KEY: z.string().min(1).optional(),
   STREAMS_PORT: z.coerce.number().int().positive().default(51234),
   STREAMS_URL: z.string().url().optional().or(z.literal("")),
 });

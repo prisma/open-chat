@@ -44,7 +44,13 @@ export function chatRoutingKey(chatId: string) {
 
 async function streamsFetch(path: string, init?: RequestInit) {
   const baseUrl = await getStreamsUrl();
-  const response = await fetch(`${baseUrl}${path}`, init);
+  // A remote streams service (src/streams-app) requires a bearer key; the
+  // embedded local server ignores the header.
+  const headers = new Headers(init?.headers);
+  if (env.STREAMS_API_KEY) {
+    headers.set("authorization", `Bearer ${env.STREAMS_API_KEY}`);
+  }
+  const response = await fetch(`${baseUrl}${path}`, { ...init, headers });
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
