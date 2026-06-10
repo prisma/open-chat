@@ -13,6 +13,7 @@
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
     "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
     "paths": {
       "@client/*": ["src/client/*"],
       "@server/*": ["src/server/*"],
@@ -24,4 +25,3 @@
   },
   "include": ["src", "prisma.config.ts", "tests"]
 }
-
