@@ -23,6 +23,7 @@ import {
   chatsCollection,
   messagesCollection,
   modelsCollection,
+  resetClientState,
   type UiState,
   uiCollection,
   updateUi,
@@ -34,14 +35,52 @@ function cx(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
+let protectedLoadsPaused = false;
+
+function pauseProtectedLoads() {
+  protectedLoadsPaused = true;
+  updateUi((state) => {
+    state.isSigningOut = true;
+  });
+}
+
+function resetAfterAuthTransition() {
+  protectedLoadsPaused = false;
+  resetClientState();
+}
+
+function shouldSkipProtectedLoad() {
+  return protectedLoadsPaused || appState().isSigningOut;
+}
+
+function reportClientError(error: unknown) {
+  if (protectedLoadsPaused) return;
+
+  updateUi((state) => {
+    state.streamStatus = "error";
+    state.streamError =
+      error instanceof Error ? error.message : "Action failed";
+  });
+}
+
 async function loadChat(chatId: string) {
+  if (shouldSkipProtectedLoad()) return;
+
+  const chat = chatsCollection.get(chatId);
   updateUi((state) => {
     state.selectedChatId = chatId;
+    state.selectedModel = chat?.model ?? state.selectedModel;
     state.streamStatus = "connecting";
     state.streamError = undefined;
   });
 
+  if (shouldSkipProtectedLoad()) return;
   const history = await api.chats.history(chatId);
+  const state = appState();
+  if (protectedLoadsPaused || state.isSigningOut || state.selectedChatId !== chatId) {
+    return;
+  }
+
   for (const message of history.messages) upsertMessage(message);
   startChatStream(chatId, history.offset);
 }
@@ -178,7 +217,9 @@ function Sidebar({
       <button
         className="button primary new-chat"
         type="button"
-        onClick={() => createChat(ui.selectedModel)}
+        onClick={() => {
+          void createChat(ui.selectedModel).catch(reportClientError);
+        }}
       >
         <Plus size={17} aria-hidden />
         New chat
@@ -216,7 +257,9 @@ function Sidebar({
                     <button
                       className="chat-select"
                       type="button"
-                      onClick={() => loadChat(chat.id)}
+                      onClick={() => {
+                        void loadChat(chat.id).catch(reportClientError);
+                      }}
                     >
                       <MessageSquare size={16} aria-hidden />
                       <span>{chat.title}</span>
@@ -340,11 +383,26 @@ function Transcript({
   messages: Array<ChatMessage>;
   selectedChat: ChatDto | undefined;
 }) {
+  const listRef = useRef<HTMLElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
+  const shouldStickRef = useRef(true);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
+    shouldStickRef.current = true;
+  }, [selectedChat?.id]);
+
+  useEffect(() => {
+    if (shouldStickRef.current) {
+      endRef.current?.scrollIntoView({ block: "end" });
+    }
   }, [messages]);
+
+  function trackScroll() {
+    const list = listRef.current;
+    if (!list) return;
+    shouldStickRef.current =
+      list.scrollHeight - list.scrollTop - list.clientHeight < 96;
+  }
 
   if (!selectedChat) {
     return (
@@ -367,7 +425,12 @@ function Transcript({
   }
 
   return (
-    <section className="transcript" aria-label="Messages">
+    <section
+      className="transcript"
+      aria-label="Messages"
+      ref={listRef}
+      onScroll={trackScroll}
+    >
       {messages.map((message) => (
         <MessageBubble message={message} key={message.id} />
       ))}
@@ -418,20 +481,24 @@ function Composer({
     const text = ui.composerText.trim();
     if (!text) return;
 
-    let chat = selectedChat;
-    if (!chat) {
-      chat = await createChat(ui.selectedModel);
-    }
+    try {
+      let chat = selectedChat;
+      if (!chat) {
+        chat = await createChat(ui.selectedModel);
+      }
 
-    updateUi((state) => {
-      state.composerText = "";
-      state.streamStatus = "connecting";
-    });
-    await api.chats.send(chat.id, {
-      text,
-      model: ui.selectedModel,
-    });
-    void chatsCollection.utils.refetch();
+      updateUi((state) => {
+        state.composerText = "";
+        state.streamStatus = "connecting";
+      });
+      await api.chats.send(chat.id, {
+        text,
+        model: ui.selectedModel,
+      });
+      void chatsCollection.utils.refetch();
+    } catch (error) {
+      reportClientError(error);
+    }
   }
 
   return (
@@ -468,8 +535,7 @@ function Composer({
   );
 }
 
-function ChatApp() {
-  const session = authClient.useSession();
+function AuthenticatedChatApp() {
   const { data: chatsData } = useLiveQuery(chatsCollection);
   const { data: modelsData } = useLiveQuery(modelsCollection);
   const { data: uiData } = useLiveQuery(uiCollection);
@@ -482,18 +548,12 @@ function ChatApp() {
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
   useEffect(() => {
-    if (!ui.selectedChatId && chats[0]) {
-      void loadChat(chats[0].id);
+    if (!ui.isSigningOut && !ui.selectedChatId && chats[0]) {
+      void loadChat(chats[0].id).catch(reportClientError);
     }
-  }, [chats, ui.selectedChatId]);
+  }, [chats, ui.isSigningOut, ui.selectedChatId]);
 
-  if (session.isPending) {
-    return <main className="loading-screen">Loading session</main>;
-  }
-
-  if (!session.data) {
-    return <AuthView />;
-  }
+  useEffect(() => stopChatStream, []);
 
   return (
     <main className="app-shell">
@@ -521,7 +581,14 @@ function ChatApp() {
             className="icon-button"
             type="button"
             aria-label="Sign out"
-            onClick={() => authClient.signOut()}
+            onClick={() => {
+              pauseProtectedLoads();
+              stopChatStream();
+              void authClient.signOut().catch((error) => {
+                protectedLoadsPaused = false;
+                reportClientError(error);
+              });
+            }}
           >
             <LogOut size={18} aria-hidden />
           </button>
@@ -543,5 +610,21 @@ function ChatApp() {
 }
 
 export function App() {
-  return <ChatApp />;
+  const session = authClient.useSession();
+  const userId = session.data?.user.id ?? "";
+
+  useEffect(() => {
+    stopChatStream();
+    resetAfterAuthTransition();
+  }, [userId]);
+
+  if (session.isPending) {
+    return <main className="loading-screen">Loading session</main>;
+  }
+
+  if (!session.data) {
+    return <AuthView />;
+  }
+
+  return <AuthenticatedChatApp />;
 }

@@ -17,6 +17,7 @@ export type UiState = {
   selectedModel: string;
   sidebarOpen: boolean;
   authMode: "sign-in" | "sign-up";
+  isSigningOut: boolean;
   streamStatus: "idle" | "connecting" | "live" | "complete" | "error";
   streamError?: string | undefined;
   editingChatId?: string | undefined;
@@ -70,6 +71,7 @@ const initialUiState: UiState = {
   selectedModel: "openai/gpt-4.1-mini",
   sidebarOpen: true,
   authMode: "sign-in",
+  isSigningOut: false,
   streamStatus: "idle",
   editingTitle: "",
 };
@@ -110,4 +112,23 @@ export function upsertCheckpoint(checkpoint: StreamCheckpoint) {
   } else {
     checkpointsCollection.insert(checkpoint);
   }
+}
+
+export function resetClientState() {
+  for (const key of messagesCollection.keys()) messagesCollection.delete(key);
+  for (const key of checkpointsCollection.keys()) {
+    checkpointsCollection.delete(key);
+  }
+  updateUi((state) => {
+    state.selectedChatId = "";
+    state.composerText = "";
+    state.modelSearch = "";
+    state.selectedModel = "openai/gpt-4.1-mini";
+    state.sidebarOpen = true;
+    state.isSigningOut = false;
+    state.streamStatus = "idle";
+    state.streamError = undefined;
+    state.editingChatId = undefined;
+    state.editingTitle = "";
+  });
 }
