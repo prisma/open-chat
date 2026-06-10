@@ -42,7 +42,7 @@ export async function assertWithinUsageLimit(user: SpendUser) {
   throw new HttpError(
     402,
     user.isAnonymous
-      ? "Free usage limit reached. Sign in to get $2.00 per month."
+      ? "Free usage limit reached."
       : "Monthly usage limit reached. Top-ups are coming soon.",
   );
 }

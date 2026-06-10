@@ -9,6 +9,9 @@ export const auth = betterAuth({
   database: pool,
   emailAndPassword: {
     enabled: true,
+    // Existing accounts can sign in, but public registration is closed;
+    // new visitors use anonymous guest sessions instead.
+    disableSignUp: true,
   },
   plugins: [anonymous()],
   trustedOrigins: [env.APP_ORIGIN],

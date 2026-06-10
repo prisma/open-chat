@@ -23,7 +23,6 @@ export type UiState = {
   selectedModel: string;
   modelPickerOpen: boolean;
   sidebarOpen: boolean;
-  authMode: "sign-in" | "sign-up";
   showAuthScreen: boolean;
   isSigningOut: boolean;
   streamStatus: "idle" | "connecting" | "live" | "complete" | "error";
@@ -94,7 +93,6 @@ const initialUiState: UiState = {
   selectedModel: "openai/gpt-4.1-mini",
   modelPickerOpen: false,
   sidebarOpen: false,
-  authMode: "sign-in",
   showAuthScreen: false,
   isSigningOut: false,
   streamStatus: "idle",

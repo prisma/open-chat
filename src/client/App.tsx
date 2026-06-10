@@ -235,22 +235,12 @@ async function createChat(model?: string) {
 }
 
 function AuthView({ onCancel }: { onCancel?: (() => void) | undefined }) {
-  const { data } = useLiveQuery(uiCollection);
-  const mode = data[0]?.authMode ?? "sign-in";
-  const isSignUp = mode === "sign-up";
-
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const email = String(form.get("email") ?? "");
     const password = String(form.get("password") ?? "");
-    const name = String(form.get("name") ?? "Open Chat User");
-
-    if (isSignUp) {
-      await authClient.signUp.email({ email, password, name });
-    } else {
-      await authClient.signIn.email({ email, password });
-    }
+    await authClient.signIn.email({ email, password });
   }
 
   return (
@@ -262,12 +252,6 @@ function AuthView({ onCancel }: { onCancel?: (() => void) | undefined }) {
         <h1 id="auth-title">Open Chat</h1>
         <p>Durable chats, streamed live and replayed on demand.</p>
         <form className="auth-form" onSubmit={submit}>
-          {isSignUp ? (
-            <label>
-              Name
-              <input name="name" autoComplete="name" required />
-            </label>
-          ) : null}
           <label>
             Email
             <input name="email" type="email" autoComplete="email" required />
@@ -277,26 +261,15 @@ function AuthView({ onCancel }: { onCancel?: (() => void) | undefined }) {
             <input
               name="password"
               type="password"
-              autoComplete={isSignUp ? "new-password" : "current-password"}
+              autoComplete="current-password"
               minLength={8}
               required
             />
           </label>
           <button className="button primary" type="submit">
-            {isSignUp ? "Create account" : "Sign in"}
+            Sign in
           </button>
         </form>
-        <button
-          className="text-button"
-          type="button"
-          onClick={() =>
-            updateUi((state) => {
-              state.authMode = isSignUp ? "sign-in" : "sign-up";
-            })
-          }
-        >
-          {isSignUp ? "Use an existing account" : "Create a local account"}
-        </button>
         {onCancel ? (
           <button className="text-button" type="button" onClick={onCancel}>
             Continue as guest

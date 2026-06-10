@@ -10,7 +10,7 @@ The app runs fully locally except for OpenRouter model calls. Local development 
 
 - Bun owns the HTTP server, static HTML import, API routing, and the authenticated stream proxy.
 - React renders the browser UI, bundled by Bun from `src/client/index.html`.
-- Better Auth owns sign-up, sign-in, sign-out, session cookies, and server-side session validation.
+- Better Auth owns sign-in, sign-out, anonymous guest sessions, session cookies, and server-side session validation. Public sign-up is disabled.
 - Prisma Next owns Postgres metadata access through the emitted contract (`src/prisma/contract.prisma`) and the `@prisma-next/postgres` runtime, sharing one `pg.Pool` with Better Auth.
 - Prisma Streams owns append-only chat message history and assistant streaming events.
 - TanStack DB owns browser state via query collections, local-only collections, and live queries.
@@ -110,7 +110,7 @@ React components render with `useLiveQuery`. Event handlers mutate collections o
 
 Better Auth is mounted at `/api/auth/*`. Every protected app API calls `auth.api.getSession({ headers })` and fails closed when the session is missing.
 
-First-time visitors are signed in automatically as anonymous guests (Better Auth's `anonymous` plugin), so the app is usable without registration; the auth screen is opt-in. Guests get a small lifetime budget, registered users a monthly one — `src/server/usage.ts` enforces both before each model call.
+First-time visitors are signed in automatically as anonymous guests (Better Auth's `anonymous` plugin), so the app is usable without registration; the sign-in screen is opt-in and public sign-up is disabled (`disableSignUp`). Guests get a small lifetime budget, registered users a monthly one — `src/server/usage.ts` enforces both before each model call.
 
 Only authenticated users (including guests) can:
 

@@ -19,7 +19,7 @@ Every assistant token is appended to a durable stream **before** the browser ren
 
 - Streaming chat with any text model on [OpenRouter](https://openrouter.ai) — switch models mid-conversation; each message records which model wrote it
 - Durable, resumable streams: refresh, reconnect, or restart the server without losing tokens
-- Anonymous guest sessions with a lifetime budget; email/password accounts with a monthly budget
+- Anonymous guest sessions with a lifetime budget; existing email/password accounts get a monthly one (public sign-up is disabled)
 - Usage metering in micro-USD with a per-chat, per-model cost breakdown
 - Markdown rendering, message permalinks, chat search, rename, and delete
 - One process, no build step: Bun serves the API, the SSE proxy, and the React client
