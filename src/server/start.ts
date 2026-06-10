@@ -1,9 +1,6 @@
-// Deployment entrypoint. When this server is bundled (`bun build
-// --target=bun`), the client assets from the HTML import are emitted next
-// to the bundle, but Bun resolves them against the process working
-// directory at runtime. Hosts often start the process from elsewhere, so
-// pin the cwd to the bundle directory before the server module loads.
-// The dynamic import is load-bearing: a static import would execute
-// index.ts before the chdir runs.
-process.chdir(import.meta.dir);
-await import("./index");
+// Deployment entrypoint: fix the working directory, then start the server.
+// Module order matters — ESM executes imports in order, so chdir.ts runs
+// before index.ts resolves its bundled client assets. Both imports must be
+// static so the bundler emits the HTML import's assets next to the bundle.
+import "./chdir";
+import "./index";
