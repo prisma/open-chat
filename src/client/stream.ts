@@ -8,6 +8,7 @@ import {
   updateUi,
   upsertCheckpoint,
   upsertMessage,
+  usageCollection,
 } from "./db";
 
 let source: EventSource | undefined;
@@ -20,6 +21,10 @@ function materializeEvent(event: DurableMessageEvent) {
 
   const next = map.get(event.messageId);
   if (next) upsertMessage(next);
+
+  if (event.type === "message.completed") {
+    void usageCollection.utils.refetch().catch(() => undefined);
+  }
 }
 
 export function stopChatStream() {

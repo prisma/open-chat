@@ -76,6 +76,53 @@ describe("message materialization", () => {
     });
   });
 
+  test("attaches normalized usage from completion events", () => {
+    const messages = materializeMessages([
+      event({
+        type: "message.created",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        text: "",
+      }),
+      event({
+        type: "message.completed",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        usage: { inputTokens: 120, outputTokens: 45, costMicroUsd: 87 },
+      }),
+    ]);
+
+    expect(messages[0]?.usage).toEqual({
+      inputTokens: 120,
+      outputTokens: 45,
+      costMicroUsd: 87,
+    });
+  });
+
+  test("ignores legacy raw usage payloads on completion events", () => {
+    const messages = materializeMessages([
+      event({
+        type: "message.created",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        text: "",
+      }),
+      event({
+        type: "message.completed",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        usage: { inputTokens: 120, outputTokens: 45, totalTokens: 165 },
+      }),
+    ]);
+
+    expect(messages[0]?.status).toBe("completed");
+    expect(messages[0]?.usage).toBeUndefined();
+  });
+
   test("marks assistant errors durably", () => {
     const messages = materializeMessages([
       event({

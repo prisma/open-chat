@@ -30,6 +30,39 @@ export async function listOpenRouterModels() {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+type ModelPricing = { prompt: number; completion: number };
+
+let pricingCache:
+  | { fetchedAt: number; byModel: Map<string, ModelPricing> }
+  | undefined;
+
+export async function getModelPricing(modelId: string) {
+  const maxAgeMs = 60 * 60 * 1000;
+  if (!pricingCache || Date.now() - pricingCache.fetchedAt > maxAgeMs) {
+    const models = await listOpenRouterModels();
+    pricingCache = {
+      fetchedAt: Date.now(),
+      byModel: new Map(
+        models.map((model) => {
+          const pricing = (model.pricing ?? {}) as {
+            prompt?: string | number;
+            completion?: string | number;
+          };
+          return [
+            model.id,
+            {
+              prompt: Number(pricing.prompt ?? 0) || 0,
+              completion: Number(pricing.completion ?? 0) || 0,
+            },
+          ];
+        }),
+      ),
+    };
+  }
+
+  return pricingCache.byModel.get(modelId);
+}
+
 export async function streamChatCompletion(input: {
   model: string;
   messages: Array<ChatMessages>;

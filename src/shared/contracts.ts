@@ -72,6 +72,21 @@ export const messageEventSchema = z.discriminatedUnion("type", [
 
 export type MessageEvent = z.infer<typeof messageEventSchema>;
 
+export const usageSummarySchema = z.object({
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  costMicroUsd: z.number().int().nonnegative(),
+});
+
+export type UsageSummary = z.infer<typeof usageSummarySchema>;
+
+export type UsageDto = {
+  spentMicroUsd: number;
+  limitMicroUsd: number;
+  period: string;
+  isAnonymous: boolean;
+};
+
 export type ChatMessage = {
   id: string;
   chatId: string;
@@ -80,6 +95,7 @@ export type ChatMessage = {
   status: "streaming" | "completed" | "error";
   model?: string | undefined;
   error?: string | undefined;
+  usage?: UsageSummary | undefined;
   createdAt: string;
   updatedAt: string;
 };

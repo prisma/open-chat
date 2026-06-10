@@ -1,4 +1,9 @@
-import type { ChatDto, ChatMessage, ModelDto } from "../shared/contracts";
+import type {
+  ChatDto,
+  ChatMessage,
+  ModelDto,
+  UsageDto,
+} from "../shared/contracts";
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -53,6 +58,9 @@ export const api = {
   },
   models: {
     list: () => requestJson<Array<ModelDto>>("/api/models"),
+  },
+  usage: {
+    get: () => requestJson<UsageDto>("/api/usage"),
   },
 };
 

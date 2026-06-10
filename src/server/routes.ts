@@ -25,6 +25,14 @@ import {
   loadAllMessageEvents,
   readMessageEvents,
 } from "./streams";
+import {
+  assertWithinUsageLimit,
+  currentPeriod,
+  getSpendMicroUsd,
+  limitMicroUsdFor,
+  recordUsage,
+  summarizeUsage,
+} from "./usage";
 
 const defaultModel = "openai/gpt-4.1-mini";
 const encoder = new TextEncoder();
@@ -215,6 +223,7 @@ async function sendMessage(request: Request, chatId: string) {
   assertMethod(request, ["POST"]);
   const user = await requireUser(request);
   const chat = await requireOwnedChat(user.id, chatId);
+  await assertWithinUsageLimit(user);
   const input = sendMessageSchema.parse(await parseJson(request));
   const model = input.model ?? chat.model;
 
@@ -272,7 +281,15 @@ async function sendMessage(request: Request, chatId: string) {
       });
 
       let finishReason: string | null = null;
-      let usage: unknown;
+      let usage:
+        | {
+            inputTokens?: number | undefined;
+            outputTokens?: number | undefined;
+            promptTokens?: number | undefined;
+            completionTokens?: number | undefined;
+            cost?: number | null | undefined;
+          }
+        | undefined;
 
       for await (const chunk of stream) {
         if (chunk.error) {
@@ -301,6 +318,7 @@ async function sendMessage(request: Request, chatId: string) {
         }
       }
 
+      const usageSummary = await summarizeUsage(model, usage);
       await appendMessageEvent(
         user.id,
         chat.id,
@@ -311,9 +329,10 @@ async function sendMessage(request: Request, chatId: string) {
           role: "assistant",
           model,
           finishReason,
-          usage,
+          usage: usageSummary,
         }),
       );
+      await recordUsage(user.id, usageSummary);
       await db.orm.Chat.where({ id: chat.id }).update({
         updatedAt: new Date(),
       });
@@ -355,6 +374,22 @@ async function getMe(request: Request) {
   });
 }
 
+async function getUsage(request: Request) {
+  assertMethod(request, ["GET"]);
+  const user = await requireUser(request);
+  const isAnonymous = Boolean(
+    (user as { isAnonymous?: boolean | null }).isAnonymous,
+  );
+  const spentMicroUsd = await getSpendMicroUsd({ id: user.id, isAnonymous });
+
+  return json({
+    spentMicroUsd,
+    limitMicroUsd: limitMicroUsdFor({ id: user.id, isAnonymous }),
+    period: isAnonymous ? "lifetime" : currentPeriod(),
+    isAnonymous,
+  });
+}
+
 async function handleApi(request: Request) {
   const url = new URL(request.url);
 
@@ -363,6 +398,7 @@ async function handleApi(request: Request) {
   }
 
   if (url.pathname === "/api/me") return getMe(request);
+  if (url.pathname === "/api/usage") return getUsage(request);
   if (url.pathname === "/api/chats") return listChats(request);
   if (url.pathname === "/api/models") return listModels(request);
 

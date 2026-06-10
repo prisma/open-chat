@@ -10,6 +10,7 @@ import {
   Plus,
   Search,
   Trash2,
+  UserRound,
   X,
   Zap,
 } from "lucide-react";
@@ -35,7 +36,9 @@ import {
   uiCollection,
   updateUi,
   upsertMessage,
+  usageCollection,
 } from "./db";
+import { MessageMarkdown } from "./markdown";
 import { startChatStream, stopChatStream } from "./stream";
 
 function cx(...classes: Array<string | false | undefined>) {
@@ -55,6 +58,53 @@ function formatTime(iso: string) {
 
 function modelShortName(modelId: string) {
   return modelId.split("/").pop() ?? modelId;
+}
+
+function formatUsd(microUsd: number, decimals = 2) {
+  return `$${(microUsd / 1_000_000).toFixed(decimals)}`;
+}
+
+function formatCost(microUsd: number) {
+  const usd = microUsd / 1_000_000;
+  if (usd >= 0.1) return `$${usd.toFixed(2)}`;
+  return `$${usd.toFixed(4)}`;
+}
+
+function formatTokens(count: number) {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`;
+  return String(count);
+}
+
+function fallbackCopy(text: string) {
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  area.focus();
+  area.select();
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch {
+    copied = false;
+  }
+  area.remove();
+  return copied;
+}
+
+async function copyToClipboard(text: string) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Clipboard API unavailable or denied; try the legacy path.
+  }
+  return fallbackCopy(text);
 }
 
 function initialsOf(name: string) {
@@ -93,6 +143,24 @@ function groupChats(chats: Array<ChatDto>) {
   }
 
   return groups;
+}
+
+function chatPermalink(chatId: string) {
+  return `#/chat/${chatId}`;
+}
+
+function messagePermalink(chatId: string, messageId: string) {
+  return `#/chat/${chatId}/message/${messageId}`;
+}
+
+function parseHashLocation():
+  | { chatId: string; messageId: string | undefined }
+  | undefined {
+  const match = /^#\/chat\/([^/]+)(?:\/message\/([^/]+))?$/.exec(
+    window.location.hash,
+  );
+  if (!match?.[1]) return undefined;
+  return { chatId: match[1], messageId: match[2] };
 }
 
 let protectedLoadsPaused = false;
@@ -134,6 +202,12 @@ async function loadChat(chatId: string) {
     state.streamError = undefined;
   });
 
+  // Keep the URL addressing the open chat, but never clobber a message
+  // permalink that points into it.
+  if (parseHashLocation()?.chatId !== chatId) {
+    window.history.replaceState(null, "", chatPermalink(chatId));
+  }
+
   if (shouldSkipProtectedLoad()) return;
   const history = await api.chats.history(chatId);
   const state = appState();
@@ -160,7 +234,7 @@ async function createChat(model?: string) {
   return chat;
 }
 
-function AuthView() {
+function AuthView({ onCancel }: { onCancel?: (() => void) | undefined }) {
   const { data } = useLiveQuery(uiCollection);
   const mode = data[0]?.authMode ?? "sign-in";
   const isSignUp = mode === "sign-up";
@@ -223,8 +297,46 @@ function AuthView() {
         >
           {isSignUp ? "Use an existing account" : "Create a local account"}
         </button>
+        {onCancel ? (
+          <button className="text-button" type="button" onClick={onCancel}>
+            Continue as guest
+          </button>
+        ) : null}
       </section>
     </main>
+  );
+}
+
+function UsageMeter() {
+  const { data } = useLiveQuery(usageCollection);
+  const usage = data[0];
+  if (!usage) return null;
+
+  const ratio = usage.limitMicroUsd
+    ? usage.spentMicroUsd / usage.limitMicroUsd
+    : 0;
+  const percent = Math.min(100, Math.round(ratio * 100));
+  const scope = usage.isAnonymous ? "guest budget" : "this month";
+
+  return (
+    <div
+      className="usage-meter"
+      title={`${formatCost(usage.spentMicroUsd)} of ${formatUsd(usage.limitMicroUsd)} used (${scope})`}
+    >
+      <div className="usage-bar" role="presentation">
+        <span
+          className={cx(
+            "usage-fill",
+            ratio >= 1 ? "full" : ratio >= 0.8 && "warn",
+          )}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+      <div className="usage-text mono">
+        {formatCost(usage.spentMicroUsd)} / {formatUsd(usage.limitMicroUsd)}
+        <span className="usage-scope"> · {scope}</span>
+      </div>
+    </div>
   );
 }
 
@@ -337,11 +449,13 @@ function Sidebar({
   chats,
   ui,
   userName,
+  isAnonymous,
   searchRef,
 }: {
   chats: Array<ChatDto>;
   ui: UiState;
   userName: string;
+  isAnonymous: boolean;
   searchRef: React.RefObject<HTMLInputElement | null>;
 }) {
   const query = ui.chatSearch.trim().toLowerCase();
@@ -420,22 +534,43 @@ function Sidebar({
           </div>
         )}
       </nav>
-      <div className="account-row">
-        <span className="avatar" aria-hidden>
-          {initialsOf(userName)}
-        </span>
-        <span className="account-name">{userName}</span>
-        <div className="row-actions">
+      <UsageMeter />
+      {isAnonymous ? (
+        <div className="account-row">
+          <span className="avatar" aria-hidden>
+            <UserRound size={14} aria-hidden />
+          </span>
+          <span className="account-name">Guest</span>
           <button
-            className="icon-button"
+            className="sign-in-button"
             type="button"
-            aria-label="Sign out"
-            onClick={signOut}
+            onClick={() =>
+              updateUi((state) => {
+                state.showAuthScreen = true;
+              })
+            }
           >
-            <LogOut size={15} aria-hidden />
+            Sign in
           </button>
         </div>
-      </div>
+      ) : (
+        <div className="account-row">
+          <span className="avatar" aria-hidden>
+            {initialsOf(userName)}
+          </span>
+          <span className="account-name">{userName}</span>
+          <div className="row-actions">
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="Sign out"
+              onClick={signOut}
+            >
+              <LogOut size={15} aria-hidden />
+            </button>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }
@@ -443,28 +578,38 @@ function Sidebar({
 function MessageView({
   message,
   offsetLabel,
+  highlighted,
 }: {
   message: ChatMessage;
   offsetLabel: string | undefined;
+  highlighted: boolean;
 }) {
   const [copied, setCopied] = useState(false);
 
-  function copyText() {
-    void navigator.clipboard
-      .writeText(message.text)
-      .then(() => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1500);
-      })
-      .catch(() => undefined);
+  async function copyText() {
+    const copiedOk = await copyToClipboard(message.text);
+    if (copiedOk) {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    }
   }
+
+  const timeLink = (
+    <a
+      className="mono time-link"
+      href={messagePermalink(message.chatId, message.id)}
+      title="Link to this message"
+    >
+      {formatTime(message.createdAt)}
+    </a>
+  );
 
   if (message.role === "user") {
     return (
-      <article className="msg user">
+      <article className={cx("msg user", highlighted && "flash")} id={message.id}>
         <div className="msg-col">
           <div className="bubble">{message.text}</div>
-          <div className="msg-meta mono">{formatTime(message.createdAt)}</div>
+          <div className="msg-meta">{timeLink}</div>
         </div>
       </article>
     );
@@ -473,7 +618,10 @@ function MessageView({
   const streaming = message.status === "streaming";
 
   return (
-    <article className="msg assistant">
+    <article
+      className={cx("msg assistant", highlighted && "flash")}
+      id={message.id}
+    >
       <span
         className={cx("msg-dot", streaming && "streaming")}
         aria-hidden
@@ -481,7 +629,7 @@ function MessageView({
       <div className="msg-col">
         {message.text || streaming ? (
           <div className="msg-text">
-            {message.text}
+            <MessageMarkdown text={message.text} streaming={streaming} />
             {streaming ? <span className="caret" aria-hidden /> : null}
           </div>
         ) : null}
@@ -493,11 +641,12 @@ function MessageView({
         ) : null}
         {message.status === "completed" ? (
           <div className="msg-meta">
+            {timeLink}
             <span
               className="mono"
               title={offsetLabel ? `Durable · offset ${offsetLabel}` : "Durable"}
             >
-              {formatTime(message.createdAt)} · ✓
+              ✓
             </span>
             <button
               className="icon-button"
@@ -518,12 +667,112 @@ function MessageView({
   );
 }
 
+function ChatCost({ messages }: { messages: Array<ChatMessage> }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  const rows = useMemo(() => {
+    const byModel = new Map<
+      string,
+      {
+        model: string;
+        inputTokens: number;
+        outputTokens: number;
+        costMicroUsd: number;
+      }
+    >();
+    for (const message of messages) {
+      if (message.role !== "assistant" || !message.usage) continue;
+      const model = message.model ?? "unknown";
+      const row = byModel.get(model) ?? {
+        model,
+        inputTokens: 0,
+        outputTokens: 0,
+        costMicroUsd: 0,
+      };
+      row.inputTokens += message.usage.inputTokens;
+      row.outputTokens += message.usage.outputTokens;
+      row.costMicroUsd += message.usage.costMicroUsd;
+      byModel.set(model, row);
+    }
+    return [...byModel.values()].sort(
+      (a, b) => b.costMicroUsd - a.costMicroUsd,
+    );
+  }, [messages]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function onPointerDown(event: PointerEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  if (!rows.length) return null;
+  const total = rows.reduce((sum, row) => sum + row.costMicroUsd, 0);
+
+  return (
+    <div className="cost-root" ref={rootRef}>
+      <button
+        className="cost-chip mono"
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        title="Chat cost — click for the per-model breakdown"
+        onClick={() => setOpen((value) => !value)}
+      >
+        {formatCost(total)}
+      </button>
+      {open ? (
+        <div className="cost-popover" role="dialog" aria-label="Chat cost breakdown">
+          {rows.map((row) => (
+            <div className="cost-row" key={row.model}>
+              <span className="cost-model">{modelShortName(row.model)}</span>
+              <span className="cost-tokens mono">
+                {formatTokens(row.inputTokens)} in ·{" "}
+                {formatTokens(row.outputTokens)} out
+              </span>
+              <span className="cost-amount mono">
+                {formatCost(row.costMicroUsd)}
+              </span>
+            </div>
+          ))}
+          <div className="cost-row total">
+            <span className="cost-model">Total</span>
+            <span className="cost-tokens mono">
+              {formatTokens(rows.reduce((sum, row) => sum + row.inputTokens, 0))}{" "}
+              in ·{" "}
+              {formatTokens(
+                rows.reduce((sum, row) => sum + row.outputTokens, 0),
+              )}{" "}
+              out
+            </span>
+            <span className="cost-amount mono">{formatCost(total)}</span>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function Transcript({
   messages,
   selectedChat,
+  targetMessageId,
 }: {
   messages: Array<ChatMessage>;
   selectedChat: ChatDto | undefined;
+  targetMessageId: string | undefined;
 }) {
   const { data: checkpoints } = useLiveQuery(checkpointsCollection);
   const listRef = useRef<HTMLElement | null>(null);
@@ -536,14 +785,29 @@ function Transcript({
     : undefined;
 
   useEffect(() => {
-    shouldStickRef.current = true;
+    shouldStickRef.current = !targetMessageId;
   }, [selectedChat?.id]);
 
   useEffect(() => {
-    if (shouldStickRef.current) {
+    if (shouldStickRef.current && !targetMessageId) {
       endRef.current?.scrollIntoView({ block: "end" });
     }
-  }, [messages]);
+  }, [messages, targetMessageId]);
+
+  useEffect(() => {
+    if (!targetMessageId) return;
+    const element = document.getElementById(targetMessageId);
+    if (!element) return;
+
+    shouldStickRef.current = false;
+    element.scrollIntoView({ block: "center" });
+    const timer = window.setTimeout(() => {
+      updateUi((state) => {
+        state.targetMessageId = undefined;
+      });
+    }, 1800);
+    return () => window.clearTimeout(timer);
+  }, [targetMessageId, messages.length]);
 
   function trackScroll() {
     const list = listRef.current;
@@ -588,6 +852,7 @@ function Transcript({
           <MessageView
             message={message}
             offsetLabel={offsetLabel}
+            highlighted={message.id === targetMessageId}
             key={message.id}
           />
         ))}
@@ -699,10 +964,12 @@ function Composer({
   selectedChat,
   models,
   ui,
+  isAnonymous,
 }: {
   selectedChat: ChatDto | undefined;
   models: Array<ModelDto>;
   ui: UiState;
+  isAnonymous: boolean;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -727,6 +994,7 @@ function Composer({
       updateUi((state) => {
         state.composerText = "";
         state.streamStatus = "connecting";
+        state.sendError = undefined;
       });
       await api.chats.send(chat.id, {
         text,
@@ -734,12 +1002,35 @@ function Composer({
       });
       void chatsCollection.utils.refetch();
     } catch (error) {
-      reportClientError(error);
+      updateUi((state) => {
+        state.sendError =
+          error instanceof Error ? error.message : "Could not send message";
+      });
+      void usageCollection.utils.refetch().catch(() => undefined);
     }
   }
 
   return (
     <div className="composer-area">
+      {ui.sendError ? (
+        <div className="send-error" role="alert">
+          <AlertCircle size={14} aria-hidden />
+          <span>{ui.sendError}</span>
+          {isAnonymous ? (
+            <button
+              className="sign-in-button"
+              type="button"
+              onClick={() =>
+                updateUi((state) => {
+                  state.showAuthScreen = true;
+                })
+              }
+            >
+              Sign in
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <form className="composer" onSubmit={submit}>
         {ui.modelPickerOpen ? <ModelPopover models={models} ui={ui} /> : null}
         <textarea
@@ -789,7 +1080,13 @@ function Composer({
   );
 }
 
-function AuthenticatedChatApp({ userName }: { userName: string }) {
+function AuthenticatedChatApp({
+  userName,
+  isAnonymous,
+}: {
+  userName: string;
+  isAnonymous: boolean;
+}) {
   const { data: chatsData } = useLiveQuery(chatsCollection);
   const { data: modelsData } = useLiveQuery(modelsCollection);
   const { data: uiData } = useLiveQuery(uiCollection);
@@ -805,10 +1102,37 @@ function AuthenticatedChatApp({ userName }: { userName: string }) {
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
   useEffect(() => {
-    if (!ui.isSigningOut && !ui.selectedChatId && chats[0]) {
-      void loadChat(chats[0].id).catch(reportClientError);
+    if (ui.isSigningOut || ui.selectedChatId || !chats.length) return;
+
+    const target = parseHashLocation();
+    const initial =
+      (target && chats.find((chat) => chat.id === target.chatId)) ?? chats[0];
+    if (!initial) return;
+
+    if (target?.messageId && target.chatId === initial.id) {
+      updateUi((state) => {
+        state.targetMessageId = target.messageId;
+      });
     }
+    void loadChat(initial.id).catch(reportClientError);
   }, [chats, ui.isSigningOut, ui.selectedChatId]);
+
+  useEffect(() => {
+    function onHashChange() {
+      const target = parseHashLocation();
+      if (!target || !chatsCollection.get(target.chatId)) return;
+
+      updateUi((state) => {
+        state.targetMessageId = target.messageId;
+      });
+      if (appState().selectedChatId !== target.chatId) {
+        void loadChat(target.chatId).catch(reportClientError);
+      }
+    }
+
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
 
   useEffect(() => stopChatStream, []);
 
@@ -832,7 +1156,13 @@ function AuthenticatedChatApp({ userName }: { userName: string }) {
 
   return (
     <main className="app-shell">
-      <Sidebar chats={chats} ui={ui} userName={userName} searchRef={searchRef} />
+      <Sidebar
+        chats={chats}
+        ui={ui}
+        userName={userName}
+        isAnonymous={isAnonymous}
+        searchRef={searchRef}
+      />
       <div
         className={cx("sidebar-backdrop", ui.sidebarOpen && "open")}
         onClick={() =>
@@ -859,6 +1189,7 @@ function AuthenticatedChatApp({ userName }: { userName: string }) {
           <div className="chat-heading">
             {selectedChat?.title ?? "Open Chat"}
           </div>
+          <ChatCost messages={messages} />
           {showStreamPill ? (
             <div
               className={cx(
@@ -878,8 +1209,17 @@ function AuthenticatedChatApp({ userName }: { userName: string }) {
             </div>
           ) : null}
         </header>
-        <Transcript messages={messages} selectedChat={selectedChat} />
-        <Composer selectedChat={selectedChat} models={modelsData} ui={ui} />
+        <Transcript
+          messages={messages}
+          selectedChat={selectedChat}
+          targetMessageId={ui.targetMessageId}
+        />
+        <Composer
+          selectedChat={selectedChat}
+          models={modelsData}
+          ui={ui}
+          isAnonymous={isAnonymous}
+        />
       </section>
     </main>
   );
@@ -887,21 +1227,62 @@ function AuthenticatedChatApp({ userName }: { userName: string }) {
 
 export function App() {
   const session = authClient.useSession();
+  const { data: uiData } = useLiveQuery(uiCollection);
+  const showAuthScreen = uiData[0]?.showAuthScreen ?? false;
+  const [guestSignInFailed, setGuestSignInFailed] = useState(false);
+  const guestSignInPending = useRef(false);
   const userId = session.data?.user.id ?? "";
   const userName = session.data?.user.name || "Account";
+  const isAnonymous = Boolean(
+    (session.data?.user as { isAnonymous?: boolean | null } | undefined)
+      ?.isAnonymous,
+  );
 
   useEffect(() => {
     stopChatStream();
     resetAfterAuthTransition();
   }, [userId]);
 
+  // Signed-out visitors get an anonymous session automatically; the auth
+  // screen is opt-in via the sidebar's sign-in button.
+  useEffect(() => {
+    if (session.isPending || session.data || guestSignInPending.current) {
+      return;
+    }
+    guestSignInPending.current = true;
+    void authClient.signIn
+      .anonymous()
+      .catch(() => setGuestSignInFailed(true))
+      .finally(() => {
+        guestSignInPending.current = false;
+      });
+  }, [session.isPending, session.data]);
+
   if (session.isPending) {
     return <main className="loading-screen">Loading session</main>;
   }
 
   if (!session.data) {
-    return <AuthView />;
+    return guestSignInFailed ? (
+      <AuthView />
+    ) : (
+      <main className="loading-screen">Starting guest session</main>
+    );
   }
 
-  return <AuthenticatedChatApp userName={userName} />;
+  if (showAuthScreen && isAnonymous) {
+    return (
+      <AuthView
+        onCancel={() =>
+          updateUi((state) => {
+            state.showAuthScreen = false;
+          })
+        }
+      />
+    );
+  }
+
+  return (
+    <AuthenticatedChatApp userName={userName} isAnonymous={isAnonymous} />
+  );
 }

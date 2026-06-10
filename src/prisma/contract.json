@@ -16,6 +16,10 @@
       "model": "Session",
       "namespace": "public"
     },
+    "usage": {
+      "model": "Usage",
+      "namespace": "public"
+    },
     "user": {
       "model": "User",
       "namespace": "public"
@@ -380,6 +384,113 @@
               "table": "session"
             }
           },
+          "Usage": {
+            "fields": {
+              "costMicroUsd": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "inputTokens": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "outputTokens": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "period": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "updatedAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz@1",
+                  "kind": "scalar"
+                }
+              },
+              "userId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "user": {
+                "cardinality": "N:1",
+                "on": {
+                  "localFields": [
+                    "userId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "costMicroUsd": {
+                  "column": "costMicroUsd"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "inputTokens": {
+                  "column": "inputTokens"
+                },
+                "outputTokens": {
+                  "column": "outputTokens"
+                },
+                "period": {
+                  "column": "period"
+                },
+                "updatedAt": {
+                  "column": "updatedAt"
+                },
+                "userId": {
+                  "column": "userId"
+                }
+              },
+              "namespaceId": "public",
+              "table": "usage"
+            }
+          },
           "User": {
             "fields": {
               "createdAt": {
@@ -414,6 +525,13 @@
                 "nullable": true,
                 "type": {
                   "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "isAnonymous": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/bool@1",
                   "kind": "scalar"
                 }
               },
@@ -477,6 +595,21 @@
                   "model": "Session",
                   "namespace": "public"
                 }
+              },
+              "usage": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "userId"
+                  ]
+                },
+                "to": {
+                  "model": "Usage",
+                  "namespace": "public"
+                }
               }
             },
             "storage": {
@@ -495,6 +628,9 @@
                 },
                 "image": {
                   "column": "image"
+                },
+                "isAnonymous": {
+                  "column": "isAnonymous"
                 },
                 "name": {
                   "column": "name"
@@ -862,6 +998,89 @@
                 }
               ]
             },
+            "usage": {
+              "columns": {
+                "costMicroUsd": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": false
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "inputTokens": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": false
+                },
+                "outputTokens": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": false
+                },
+                "period": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "updatedAt": {
+                  "codecId": "pg/timestamptz@1",
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "userId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "constraint": true,
+                  "index": true,
+                  "onDelete": "cascade",
+                  "source": {
+                    "columns": [
+                      "userId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "usage"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "user"
+                  }
+                }
+              ],
+              "indexes": [],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": [
+                {
+                  "columns": [
+                    "userId",
+                    "period"
+                  ]
+                }
+              ]
+            },
             "user": {
               "columns": {
                 "createdAt": {
@@ -891,6 +1110,11 @@
                 "image": {
                   "codecId": "pg/text@1",
                   "nativeType": "text",
+                  "nullable": true
+                },
+                "isAnonymous": {
+                  "codecId": "pg/bool@1",
+                  "nativeType": "bool",
                   "nullable": true
                 },
                 "name": {
@@ -977,10 +1201,10 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "sha256:ed6959f30d45de32d7b9b6e8b7b5c99d6dc92e4c6657a0182a0b8808307604df"
+    "storageHash": "sha256:1e6e166d86676aa4f843358d5ab4b6ccf3a06bc8008943c2b1d2ca82a1043d89"
   },
   "execution": {
-    "executionHash": "sha256:c531a7a730b852f97bb09aa2c7eb38804be85b4cc4099a859c2d4a76d1b3cb77",
+    "executionHash": "sha256:bf3ab73470876d0b4a1f8e5d33d28280f043c1a99b1177f38678aaf9a55173e4",
     "mutations": {
       "defaults": [
         {
@@ -1023,6 +1247,20 @@
           "ref": {
             "column": "updatedAt",
             "table": "session"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "onUpdate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "ref": {
+            "column": "updatedAt",
+            "table": "usage"
           }
         },
         {

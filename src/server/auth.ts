@@ -1,4 +1,5 @@
 import { betterAuth } from "better-auth";
+import { anonymous } from "better-auth/plugins";
 import { pool } from "../prisma/db";
 import { env } from "./env";
 
@@ -9,6 +10,7 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
   },
+  plugins: [anonymous()],
   trustedOrigins: [env.APP_ORIGIN],
 });
 

@@ -6,6 +6,7 @@ import type {
   ChatMessage,
   ModelDto,
   StreamCheckpoint,
+  UsageDto,
 } from "../shared/contracts";
 import { api } from "./api";
 
@@ -19,11 +20,14 @@ export type UiState = {
   modelPickerOpen: boolean;
   sidebarOpen: boolean;
   authMode: "sign-in" | "sign-up";
+  showAuthScreen: boolean;
   isSigningOut: boolean;
   streamStatus: "idle" | "connecting" | "live" | "complete" | "error";
   streamError?: string | undefined;
+  sendError?: string | undefined;
   editingChatId?: string | undefined;
   editingTitle: string;
+  targetMessageId?: string | undefined;
 };
 
 export const queryClient = new QueryClient();
@@ -51,6 +55,18 @@ export const modelsCollection = createCollection(
   }),
 );
 
+export const usageCollection = createCollection(
+  queryCollectionOptions<UsageDto & { id: "usage" }>({
+    id: "usage",
+    queryClient,
+    queryKey: ["usage"],
+    queryFn: async () => [{ id: "usage" as const, ...(await api.usage.get()) }],
+    staleTime: 5_000,
+    retry: 1,
+    getKey: (usage): string => usage.id,
+  }),
+);
+
 export const messagesCollection = createCollection(
   localOnlyCollectionOptions<ChatMessage, string>({
     id: "messages",
@@ -75,6 +91,7 @@ const initialUiState: UiState = {
   modelPickerOpen: false,
   sidebarOpen: false,
   authMode: "sign-in",
+  showAuthScreen: false,
   isSigningOut: false,
   streamStatus: "idle",
   editingTitle: "",
@@ -123,6 +140,18 @@ export function resetClientState() {
   for (const key of checkpointsCollection.keys()) {
     checkpointsCollection.delete(key);
   }
+
+  // The chats/usage caches belong to the previous identity; drop them so a
+  // stale chat is never auto-loaded across an auth transition, and clear any
+  // permalink pointing into the previous user's data.
+  for (const key of [...chatsCollection.keys()]) {
+    chatsCollection.utils.writeDelete(key);
+  }
+  void chatsCollection.utils.refetch().catch(() => undefined);
+  void usageCollection.utils.refetch().catch(() => undefined);
+  if (window.location.hash) {
+    window.history.replaceState(null, "", window.location.pathname);
+  }
   updateUi((state) => {
     state.selectedChatId = "";
     state.composerText = "";
@@ -131,10 +160,13 @@ export function resetClientState() {
     state.selectedModel = "openai/gpt-4.1-mini";
     state.modelPickerOpen = false;
     state.sidebarOpen = false;
+    state.showAuthScreen = false;
     state.isSigningOut = false;
     state.streamStatus = "idle";
     state.streamError = undefined;
+    state.sendError = undefined;
     state.editingChatId = undefined;
     state.editingTitle = "";
+    state.targetMessageId = undefined;
   });
 }

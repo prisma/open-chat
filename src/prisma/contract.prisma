@@ -8,11 +8,13 @@ model User {
   // on emit (PN-CLI-4003 at db init). Better Auth always sets this on insert.
   emailVerified Boolean
   image         String?
+  isAnonymous   Boolean?
   createdAt     DateTime  @default(now())
   updatedAt     temporal.updatedAt()
   sessions      Session[]
   accounts      Account[]
   chats         Chat[]
+  usage         Usage[]
 
   @@map("user")
 }
@@ -62,6 +64,23 @@ model Verification {
 
   @@index([identifier])
   @@map("verification")
+}
+
+model Usage {
+  id           String   @id
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  period       String
+  // NOTE: no @default(0) — prisma-next 0.13.0 drops falsy literal defaults
+  // on emit; the app always writes these columns explicitly.
+  inputTokens  Int
+  outputTokens Int
+  costMicroUsd Int
+  createdAt    DateTime @default(now())
+  updatedAt    temporal.updatedAt()
+
+  @@unique([userId, period])
+  @@map("usage")
 }
 
 model Chat {

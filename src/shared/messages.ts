@@ -1,4 +1,8 @@
-import type { ChatMessage, MessageEvent } from "./contracts";
+import {
+  type ChatMessage,
+  type MessageEvent,
+  usageSummarySchema,
+} from "./contracts";
 
 export function applyMessageEvent(
   messages: Map<string, ChatMessage>,
@@ -34,11 +38,13 @@ export function applyMessageEvent(
       return;
     }
     case "message.completed": {
+      const usage = usageSummarySchema.safeParse(event.usage);
       messages.set(event.messageId, {
         ...base,
         role: "assistant",
         text: existing?.text ?? "",
         status: "completed",
+        usage: usage.success ? usage.data : undefined,
       });
       return;
     }
