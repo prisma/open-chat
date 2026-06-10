@@ -186,7 +186,8 @@ async function streamEvents(request: Request, chatId: string) {
       }
     },
     cancel() {
-      request.signal.throwIfAborted?.();
+      // Client disconnected; the read loop exits via request.signal.
+      // Throwing here would crash the process.
     },
   });
 
