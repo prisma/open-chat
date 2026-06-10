@@ -1,0 +1,137 @@
+# Architecture
+
+## Goals
+
+Open Chat is a prominent learning example for Prisma Streams. The system should make durable, resumable chat streaming visible in the codebase without hiding it behind a framework or a bespoke state manager.
+
+The app runs fully locally except for OpenRouter model calls. Local development uses Prisma Postgres through `prisma dev` and Prisma Streams through `@prisma/streams-local`.
+
+## Runtime Shape
+
+- Bun owns the HTTP server, static HTML import, API routing, and the authenticated stream proxy.
+- React renders the browser UI, bundled by Bun from `src/client/index.html`.
+- Better Auth owns sign-up, sign-in, sign-out, session cookies, and server-side session validation.
+- Prisma ORM 7 owns Postgres metadata access through the generated `prisma-client` output and `@prisma/adapter-pg`.
+- Prisma Streams owns append-only chat message history and assistant streaming events.
+- TanStack DB owns browser state via query collections, local-only collections, and live queries.
+- OpenRouter is the only external service.
+
+## Data Ownership
+
+Postgres stores metadata that must be queried relationally:
+
+- Better Auth `user`, `session`, `account`, and `verification` records.
+- `Chat` rows for listing, naming, sorting, and selecting chats.
+- Chat preferences such as selected model.
+
+Prisma Streams stores chat message events:
+
+- user message creation
+- assistant message creation
+- assistant text deltas
+- assistant completion metadata
+- assistant error records
+
+This split keeps chat listing cheap in Postgres while preserving durable, resumable message delivery in Streams.
+
+## Stream And Routing Key Pattern
+
+Each user gets one durable JSON stream:
+
+```text
+u_<sha256(userId)[0..24]>_messages
+```
+
+Each chat uses a routing key inside that user stream:
+
+```text
+chat:<chatId>
+```
+
+Reasoning:
+
+- A user can have many chats, but chat list and names are Postgres metadata, so stream discovery is not needed for listing.
+- A single stream per user avoids a stream-per-chat explosion while preserving tenant isolation.
+- Prisma Streams routing-key reads are designed for exact key-filtered access; chat history is a natural exact-key workload.
+- Assistant streaming appends use the same routing key, so reconnecting clients can resume from the last durable offset.
+
+The browser never talks to Prisma Streams directly. It calls Bun endpoints that validate the Better Auth session, resolve user ownership, and then proxy appends/reads to the user stream.
+
+## Message Event Contract
+
+Stream entries are JSON events. The routing key is carried in the durable stream header, and the body remains self-describing:
+
+```json
+{
+  "id": "evt_...",
+  "chatId": "chat_...",
+  "messageId": "msg_...",
+  "type": "message.created | message.delta | message.completed | message.error",
+  "role": "user | assistant",
+  "text": "delta or full text",
+  "model": "openrouter/model-id",
+  "createdAt": "2026-06-10T00:00:00.000Z",
+  "metadata": {}
+}
+```
+
+The client materializes these events into TanStack DB message rows. Assistant messages are inserted on `message.created`, updated incrementally on `message.delta`, and marked complete or failed on terminal events.
+
+## Durable Streaming Path
+
+1. The user submits a prompt.
+2. Bun validates the session and chat ownership.
+3. Bun appends the user message event to Prisma Streams.
+4. Bun creates an assistant message event.
+5. Bun calls OpenRouter with `stream: true`.
+6. Each OpenRouter delta is appended to Prisma Streams before it is visible to the UI.
+7. The browser consumes `/api/chats/:id/events` through Bun, which performs authenticated long-poll reads against Prisma Streams using the chat routing key.
+8. The client tracks the last durable offset per chat so refresh/reconnect resumes without losing tokens.
+
+## TanStack DB State
+
+TanStack DB is the only application state layer in the browser:
+
+- `chatsCollection`: query collection backed by `/api/chats`.
+- `modelsCollection`: query collection backed by `/api/models`.
+- `messagesCollection`: local-only collection populated from durable stream events.
+- `uiCollection`: local-only collection for selected chat, composer draft, model filter, sidebar state, and stream offsets.
+
+React components render with `useLiveQuery`. Event handlers mutate collections or call API methods that update collections after server confirmation.
+
+## Auth Boundary
+
+Better Auth is mounted at `/api/auth/*`. Every protected app API calls `auth.api.getSession({ headers })` and fails closed when the session is missing.
+
+Only authenticated users can:
+
+- list their chats
+- create or rename chats
+- read message streams
+- submit prompts
+- list OpenRouter models through the app proxy
+
+## Local Development
+
+Expected local services:
+
+- Postgres: `bunx prisma dev --name open-chat --detach`
+- Prisma Streams: embedded with `startLocalDurableStreamsServer` from `@prisma/streams-local`
+- App server: `bun --hot src/server/index.ts`
+
+The repo must not commit `.env` or secrets. `.env.example` documents required variables.
+
+## Sources
+
+- Prisma Streams overview and local API: https://github.com/prisma/streams/blob/main/docs/overview.md
+- Prisma Streams Durable Streams HTTP protocol: https://github.com/prisma/streams/blob/main/docs/durable-streams-spec.md
+- Prisma Streams local development: https://github.com/prisma/streams/blob/main/docs/local-dev.md
+- Prisma `dev` local Postgres command: https://www.prisma.io/docs/cli/dev
+- Prisma ORM 7 client setup: https://www.prisma.io/docs/orm/prisma-client/setup-and-configuration/introduction
+- Better Auth Prisma adapter: https://www.better-auth.com/docs/adapters/prisma
+- Better Auth session management: https://www.better-auth.com/docs/concepts/session-management
+- Bun full-stack dev server: https://bun.sh/docs/bundler/fullstack
+- TanStack DB overview and query collections: https://tanstack.com/db/latest/docs/overview
+- TanStack DB local-only collections: https://tanstack.com/db/latest/docs/collections/local-only-collection
+- OpenRouter TypeScript SDK and streaming: https://openrouter.ai/docs/client-sdks/typescript/overview
+
