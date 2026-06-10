@@ -1,0 +1,103 @@
+import { describe, expect, test } from "bun:test";
+import type { MessageEvent } from "../src/shared/contracts";
+import { materializeMessages } from "../src/shared/messages";
+
+type MessageEventInput = MessageEvent extends infer Event
+  ? Event extends MessageEvent
+    ? Omit<Event, "id" | "createdAt">
+    : never
+  : never;
+
+function event(input: MessageEventInput): MessageEvent {
+  return {
+    ...input,
+    id: crypto.randomUUID(),
+    createdAt: new Date("2026-06-10T00:00:00.000Z").toISOString(),
+  } as MessageEvent;
+}
+
+describe("message materialization", () => {
+  test("turns durable events into user and assistant messages", () => {
+    const messages = materializeMessages([
+      event({
+        type: "message.created",
+        chatId: "chat_1",
+        messageId: "msg_user",
+        role: "user",
+        text: "Hello",
+        model: "openai/gpt-4.1-mini",
+      }),
+      event({
+        type: "message.created",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        text: "",
+        model: "openai/gpt-4.1-mini",
+      }),
+      event({
+        type: "message.delta",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        text: "Hi",
+        model: "openai/gpt-4.1-mini",
+      }),
+      event({
+        type: "message.delta",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        text: " there",
+        model: "openai/gpt-4.1-mini",
+      }),
+      event({
+        type: "message.completed",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        model: "openai/gpt-4.1-mini",
+        finishReason: "stop",
+      }),
+    ]);
+
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toMatchObject({
+      id: "msg_user",
+      role: "user",
+      text: "Hello",
+      status: "completed",
+    });
+    expect(messages[1]).toMatchObject({
+      id: "msg_assistant",
+      role: "assistant",
+      text: "Hi there",
+      status: "completed",
+    });
+  });
+
+  test("marks assistant errors durably", () => {
+    const messages = materializeMessages([
+      event({
+        type: "message.created",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        text: "",
+      }),
+      event({
+        type: "message.error",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        error: "Model failed",
+      }),
+    ]);
+
+    expect(messages[0]).toMatchObject({
+      id: "msg_assistant",
+      status: "error",
+      error: "Model failed",
+    });
+  });
+});
