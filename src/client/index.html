@@ -13,23 +13,24 @@
   <body>
     <div id="root"></div>
     <!-- Boot overlay: covers the page from the first byte of HTML until the
-         app signals readiness (dismissBootScreen in App.tsx). Lives outside
-         #root so React mounting doesn't remove it mid-load. -->
+         app signals readiness (dismissBootScreen in App.tsx), which flies
+         the logo onto the in-app glyph and dissolves the backdrop. Lives
+         outside #root so React mounting doesn't remove it mid-load. The
+         tile + inner-icon proportions mirror .wordmark-glyph so the logo
+         lands pixel-perfect on its in-app counterpart. -->
     <style>
-      #boot { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: #f7f7f5; transition: opacity 0.25s ease; }
-      #boot svg { animation: boot-pulse 1.1s ease-in-out infinite; }
-      #boot.done { opacity: 0; pointer-events: none; }
-      #boot.done svg { animation: none; transition: transform 0.25s ease; transform: scale(1.15); }
+      #boot { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: #f7f7f5; transition: background-color 0.3s ease; }
+      #boot.done { background-color: transparent; pointer-events: none; }
+      .boot-logo { width: 44px; height: 44px; border-radius: 14px; background: var(--accent, #5d58c6); color: var(--accent-contrast, #fff); display: grid; place-items: center; animation: boot-pulse 1.1s ease-in-out infinite; }
       @keyframes boot-pulse { 50% { opacity: 0.55; transform: scale(0.94); } }
       @media (prefers-color-scheme: dark) { #boot { background: #131316; } }
     </style>
     <div id="boot" aria-hidden="true">
-      <svg width="44" height="44" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
-        <rect width="32" height="32" rx="9" fill="#5d58c6"/>
-        <g transform="translate(4 4)">
-          <path fill="#fff" fill-rule="evenodd" d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM13.2 4.8 8.4 11.1h2.9l-.5 4.1 4.8-6.3h-2.9z"/>
-        </g>
-      </svg>
+      <div class="boot-logo">
+        <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path fill="currentColor" fill-rule="evenodd" d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM13.2 4.8 8.4 11.1h2.9l-.5 4.1 4.8-6.3h-2.9z"/>
+        </svg>
+      </div>
     </div>
   </body>
 </html>
