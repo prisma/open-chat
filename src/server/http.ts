@@ -18,6 +18,26 @@ export function noContent() {
   return new Response(null, { status: 204 });
 }
 
+// For bulky JSON payloads (the model catalog is ~165 KB): gzip when the
+// client supports it. Small responses aren't worth the negotiation.
+export function gzipJson(
+  request: Request,
+  data: unknown,
+  headers: Record<string, string> = {},
+) {
+  if (!request.headers.get("Accept-Encoding")?.includes("gzip")) {
+    return json(data, 200, headers);
+  }
+  return new Response(Bun.gzipSync(Buffer.from(JSON.stringify(data))), {
+    headers: {
+      "Content-Type": "application/json;charset=utf-8",
+      "Content-Encoding": "gzip",
+      Vary: "Accept-Encoding",
+      ...headers,
+    },
+  });
+}
+
 export async function parseJson(request: Request) {
   try {
     return await request.json();

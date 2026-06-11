@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo/icon.svg" alt="Open Chat logo" width="96">
+</p>
+
 # Open Chat
 
 > [!TIP]

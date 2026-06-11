@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun --hot src/server/index.ts",
     "start": "bun src/server/index.ts",
-    "build": "bun build --target=bun --outdir=dist/server src/server/index.ts",
+    "build": "bun build --target=bun --production --outdir=dist/server src/start.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "db:generate": "prisma-next contract emit",

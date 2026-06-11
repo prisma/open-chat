@@ -30,6 +30,7 @@ import {
   HttpError,
   assertMethod,
   getPathId,
+  gzipJson,
   handleError,
   json,
   noContent,
@@ -375,7 +376,10 @@ async function sendMessage(request: Request, chatId: string) {
 async function listModels(request: Request) {
   assertMethod(request, ["GET"]);
   await requireUser(request);
-  return json(await listOpenRouterModels());
+  // The catalog changes rarely; let the browser skip the refetch for a while.
+  return gzipJson(request, await listOpenRouterModels(), {
+    "Cache-Control": "private, max-age=300",
+  });
 }
 
 async function getMe(request: Request) {

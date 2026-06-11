@@ -12,7 +12,6 @@ import {
   Trash2,
   UserRound,
   X,
-  Zap,
 } from "lucide-react";
 import {
   type FormEvent,
@@ -240,6 +239,32 @@ async function createChat(model?: string) {
   return chat;
 }
 
+// App mark: a chat bubble with a lightning bolt knocked out of it — the
+// "live spark" inside a durable conversation. Filled so it stays legible
+// at the 13px sidebar size where stroked icons turn to mush.
+function LogoMark({ size }: { size: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden>
+      <path
+        fill="currentColor"
+        fillRule="evenodd"
+        d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM13.2 4.8 8.4 11.1h2.9l-.5 4.1 4.8-6.3h-2.9z"
+      />
+    </svg>
+  );
+}
+
+// Fade out the boot overlay from index.html. Called when a terminal screen
+// (chat app or auth) mounts; until then the overlay hides intermediate
+// states so the load feels like one transition. Idempotent — the overlay is
+// removed from the DOM after the fade.
+function dismissBootScreen() {
+  const boot = document.getElementById("boot");
+  if (!boot) return;
+  boot.classList.add("done");
+  setTimeout(() => boot.remove(), 400);
+}
+
 function GitHubIcon() {
   return (
     <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden fill="currentColor">
@@ -266,6 +291,8 @@ function AuthView({ onCancel }: { onCancel?: (() => void) | undefined }) {
   const isSignUp = mode === "sign-up";
   const providers = configData[0]?.socialProviders ?? [];
   const [error, setError] = useState<string | undefined>();
+
+  useEffect(dismissBootScreen, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -298,7 +325,7 @@ function AuthView({ onCancel }: { onCancel?: (() => void) | undefined }) {
     <main className="auth-screen">
       <section className="auth-panel" aria-labelledby="auth-title">
         <div className="wordmark-glyph">
-          <Zap size={17} aria-hidden />
+          <LogoMark size={17} />
         </div>
         <h1 id="auth-title">Open Chat</h1>
         <p>
@@ -648,7 +675,7 @@ function Sidebar({
       <div className="sidebar-head">
         <div className="wordmark">
           <span className="wordmark-glyph">
-            <Zap size={13} aria-hidden />
+            <LogoMark size={13} />
           </span>
           Open Chat
         </div>
@@ -995,7 +1022,7 @@ function Transcript({
     return (
       <section className="empty-main">
         <span className="wordmark-glyph">
-          <Zap size={17} aria-hidden />
+          <LogoMark size={17} />
         </span>
         <h2>Start a conversation</h2>
         <p>
@@ -1268,6 +1295,8 @@ function AuthenticatedChatApp({
   const { data: uiData } = useLiveQuery(uiCollection);
   const { data: messageData } = useLiveQuery(messagesCollection);
   const ui: UiState = uiData[0] ?? appState();
+
+  useEffect(dismissBootScreen, []);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const chats = [...chatsData].sort((a, b) =>
     b.updatedAt.localeCompare(a.updatedAt),
@@ -1473,16 +1502,15 @@ export function App() {
       });
   }, [session.isPending, session.data]);
 
+  // While the session resolves (and a guest session is created if needed)
+  // render nothing — the boot overlay from index.html is still covering
+  // the screen, so the user sees a single loading state.
   if (session.isPending) {
-    return <main className="loading-screen">Loading session</main>;
+    return null;
   }
 
   if (!session.data) {
-    return guestSignInFailed ? (
-      <AuthView />
-    ) : (
-      <main className="loading-screen">Starting guest session</main>
-    );
+    return guestSignInFailed ? <AuthView /> : null;
   }
 
   if (showAuthScreen && isAnonymous) {

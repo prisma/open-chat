@@ -102,15 +102,6 @@ textarea {
   overflow: hidden;
 }
 
-.loading-screen {
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-3);
-  font-size: 13px;
-}
-
 /* ---------- Sidebar ---------- */
 
 .sidebar {

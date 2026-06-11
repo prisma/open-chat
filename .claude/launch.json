@@ -7,6 +7,14 @@
       "runtimeArgs": ["--hot", "src/server/index.ts"],
       "port": 3000,
       "autoPort": false
+    },
+    {
+      "name": "open-chat-prod-sim",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["dist/server/start.js"],
+      "port": 3201,
+      "env": { "PORT": "3201" },
+      "autoPort": false
     }
   ]
 }
