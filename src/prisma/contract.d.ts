@@ -31,9 +31,9 @@ import type {
 } from '@prisma-next/contract/types';
 
 export type StorageHash =
-  StorageHashBase<'sha256:1e6e166d86676aa4f843358d5ab4b6ccf3a06bc8008943c2b1d2ca82a1043d89'>;
+  StorageHashBase<'sha256:ab544d725c8b235f68d31af21bfc79c9ddd51a2d86d53d1fadb67f714f67d744'>;
 export type ExecutionHash =
-  ExecutionHashBase<'sha256:bf3ab73470876d0b4a1f8e5d33d28280f043c1a99b1177f38678aaf9a55173e4'>;
+  ExecutionHashBase<'sha256:aabbf67d9b0bb0e8c1f6efc6898fe9e47aac6dbdcaf13aa7658bcd0259a6803a'>;
 export type ProfileHash =
   ProfileHashBase<'sha256:9c8aa3114e84ed3b7ea2bd57526d9c2e1bf7c5292be694e9d3801f566fda7ccb'>;
 
@@ -60,11 +60,29 @@ export type FieldOutputTypes = {
     readonly createdAt: CodecTypes['pg/timestamptz@1']['output'];
     readonly updatedAt: CodecTypes['pg/timestamptz@1']['output'];
   };
+  readonly Billing: {
+    readonly id: CodecTypes['pg/text@1']['output'];
+    readonly userId: CodecTypes['pg/text@1']['output'];
+    readonly zeroAt: CodecTypes['pg/timestamptz@1']['output'] | null;
+    readonly createdAt: CodecTypes['pg/timestamptz@1']['output'];
+    readonly updatedAt: CodecTypes['pg/timestamptz@1']['output'];
+  };
   readonly Chat: {
     readonly id: CodecTypes['pg/text@1']['output'];
     readonly userId: CodecTypes['pg/text@1']['output'];
     readonly title: CodecTypes['pg/text@1']['output'];
     readonly model: CodecTypes['pg/text@1']['output'];
+    readonly createdAt: CodecTypes['pg/timestamptz@1']['output'];
+    readonly updatedAt: CodecTypes['pg/timestamptz@1']['output'];
+  };
+  readonly CreditGrant: {
+    readonly id: CodecTypes['pg/text@1']['output'];
+    readonly userId: CodecTypes['pg/text@1']['output'];
+    readonly kind: CodecTypes['pg/text@1']['output'];
+    readonly creditMicroUsd: CodecTypes['pg/int4@1']['output'];
+    readonly feeMicroUsd: CodecTypes['pg/int4@1']['output'];
+    readonly paidMicroUsd: CodecTypes['pg/int4@1']['output'];
+    readonly stripeSessionId: CodecTypes['pg/text@1']['output'] | null;
     readonly createdAt: CodecTypes['pg/timestamptz@1']['output'];
     readonly updatedAt: CodecTypes['pg/timestamptz@1']['output'];
   };
@@ -123,11 +141,29 @@ export type FieldInputTypes = {
     readonly createdAt: CodecTypes['pg/timestamptz@1']['input'];
     readonly updatedAt: CodecTypes['pg/timestamptz@1']['input'];
   };
+  readonly Billing: {
+    readonly id: CodecTypes['pg/text@1']['input'];
+    readonly userId: CodecTypes['pg/text@1']['input'];
+    readonly zeroAt: CodecTypes['pg/timestamptz@1']['input'] | null;
+    readonly createdAt: CodecTypes['pg/timestamptz@1']['input'];
+    readonly updatedAt: CodecTypes['pg/timestamptz@1']['input'];
+  };
   readonly Chat: {
     readonly id: CodecTypes['pg/text@1']['input'];
     readonly userId: CodecTypes['pg/text@1']['input'];
     readonly title: CodecTypes['pg/text@1']['input'];
     readonly model: CodecTypes['pg/text@1']['input'];
+    readonly createdAt: CodecTypes['pg/timestamptz@1']['input'];
+    readonly updatedAt: CodecTypes['pg/timestamptz@1']['input'];
+  };
+  readonly CreditGrant: {
+    readonly id: CodecTypes['pg/text@1']['input'];
+    readonly userId: CodecTypes['pg/text@1']['input'];
+    readonly kind: CodecTypes['pg/text@1']['input'];
+    readonly creditMicroUsd: CodecTypes['pg/int4@1']['input'];
+    readonly feeMicroUsd: CodecTypes['pg/int4@1']['input'];
+    readonly paidMicroUsd: CodecTypes['pg/int4@1']['input'];
+    readonly stripeSessionId: CodecTypes['pg/text@1']['input'] | null;
     readonly createdAt: CodecTypes['pg/timestamptz@1']['input'];
     readonly updatedAt: CodecTypes['pg/timestamptz@1']['input'];
   };
@@ -280,6 +316,55 @@ type ContractBase = Omit<
                   },
                 ];
               };
+              readonly billing: {
+                columns: {
+                  readonly id: {
+                    readonly nativeType: 'text';
+                    readonly codecId: 'pg/text@1';
+                    readonly nullable: false;
+                  };
+                  readonly userId: {
+                    readonly nativeType: 'text';
+                    readonly codecId: 'pg/text@1';
+                    readonly nullable: false;
+                  };
+                  readonly zeroAt: {
+                    readonly nativeType: 'timestamptz';
+                    readonly codecId: 'pg/timestamptz@1';
+                    readonly nullable: true;
+                  };
+                  readonly createdAt: {
+                    readonly nativeType: 'timestamptz';
+                    readonly codecId: 'pg/timestamptz@1';
+                    readonly nullable: false;
+                    readonly default: { readonly kind: 'function'; readonly expression: 'now()' };
+                  };
+                  readonly updatedAt: {
+                    readonly nativeType: 'timestamptz';
+                    readonly codecId: 'pg/timestamptz@1';
+                    readonly nullable: false;
+                  };
+                };
+                primaryKey: { readonly columns: readonly ['id'] };
+                uniques: readonly [{ readonly columns: readonly ['userId'] }];
+                indexes: readonly [];
+                foreignKeys: readonly [
+                  {
+                    readonly source: {
+                      readonly namespaceId: 'public' & NamespaceId;
+                      readonly tableName: 'billing';
+                      readonly columns: readonly ['userId'];
+                    };
+                    readonly target: {
+                      readonly namespaceId: 'public' & NamespaceId;
+                      readonly tableName: 'user';
+                      readonly columns: readonly ['id'];
+                    };
+                    readonly constraint: true;
+                    readonly index: true;
+                  },
+                ];
+              };
               readonly chat: {
                 columns: {
                   readonly id: {
@@ -322,6 +407,75 @@ type ContractBase = Omit<
                     readonly source: {
                       readonly namespaceId: 'public' & NamespaceId;
                       readonly tableName: 'chat';
+                      readonly columns: readonly ['userId'];
+                    };
+                    readonly target: {
+                      readonly namespaceId: 'public' & NamespaceId;
+                      readonly tableName: 'user';
+                      readonly columns: readonly ['id'];
+                    };
+                    readonly constraint: true;
+                    readonly index: true;
+                  },
+                ];
+              };
+              readonly credit_grant: {
+                columns: {
+                  readonly id: {
+                    readonly nativeType: 'text';
+                    readonly codecId: 'pg/text@1';
+                    readonly nullable: false;
+                  };
+                  readonly userId: {
+                    readonly nativeType: 'text';
+                    readonly codecId: 'pg/text@1';
+                    readonly nullable: false;
+                  };
+                  readonly kind: {
+                    readonly nativeType: 'text';
+                    readonly codecId: 'pg/text@1';
+                    readonly nullable: false;
+                  };
+                  readonly creditMicroUsd: {
+                    readonly nativeType: 'int4';
+                    readonly codecId: 'pg/int4@1';
+                    readonly nullable: false;
+                  };
+                  readonly feeMicroUsd: {
+                    readonly nativeType: 'int4';
+                    readonly codecId: 'pg/int4@1';
+                    readonly nullable: false;
+                  };
+                  readonly paidMicroUsd: {
+                    readonly nativeType: 'int4';
+                    readonly codecId: 'pg/int4@1';
+                    readonly nullable: false;
+                  };
+                  readonly stripeSessionId: {
+                    readonly nativeType: 'text';
+                    readonly codecId: 'pg/text@1';
+                    readonly nullable: true;
+                  };
+                  readonly createdAt: {
+                    readonly nativeType: 'timestamptz';
+                    readonly codecId: 'pg/timestamptz@1';
+                    readonly nullable: false;
+                    readonly default: { readonly kind: 'function'; readonly expression: 'now()' };
+                  };
+                  readonly updatedAt: {
+                    readonly nativeType: 'timestamptz';
+                    readonly codecId: 'pg/timestamptz@1';
+                    readonly nullable: false;
+                  };
+                };
+                primaryKey: { readonly columns: readonly ['id'] };
+                uniques: readonly [{ readonly columns: readonly ['stripeSessionId'] }];
+                indexes: readonly [{ readonly columns: readonly ['userId'] }];
+                foreignKeys: readonly [
+                  {
+                    readonly source: {
+                      readonly namespaceId: 'public' & NamespaceId;
+                      readonly tableName: 'credit_grant';
                       readonly columns: readonly ['userId'];
                     };
                     readonly target: {
@@ -643,6 +797,51 @@ type ContractBase = Omit<
           };
         };
       };
+      readonly Billing: {
+        readonly fields: {
+          readonly id: {
+            readonly nullable: false;
+            readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+          };
+          readonly userId: {
+            readonly nullable: false;
+            readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+          };
+          readonly zeroAt: {
+            readonly nullable: true;
+            readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/timestamptz@1' };
+          };
+          readonly createdAt: {
+            readonly nullable: false;
+            readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/timestamptz@1' };
+          };
+          readonly updatedAt: {
+            readonly nullable: false;
+            readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/timestamptz@1' };
+          };
+        };
+        readonly relations: {
+          readonly user: {
+            readonly to: { readonly namespace: 'public' & NamespaceId; readonly model: 'User' };
+            readonly cardinality: 'N:1';
+            readonly on: {
+              readonly localFields: readonly ['userId'];
+              readonly targetFields: readonly ['id'];
+            };
+          };
+        };
+        readonly storage: {
+          readonly table: 'billing';
+          readonly namespaceId: 'public';
+          readonly fields: {
+            readonly id: { readonly column: 'id' };
+            readonly userId: { readonly column: 'userId' };
+            readonly zeroAt: { readonly column: 'zeroAt' };
+            readonly createdAt: { readonly column: 'createdAt' };
+            readonly updatedAt: { readonly column: 'updatedAt' };
+          };
+        };
+      };
       readonly Chat: {
         readonly fields: {
           readonly id: {
@@ -688,6 +887,71 @@ type ContractBase = Omit<
             readonly userId: { readonly column: 'userId' };
             readonly title: { readonly column: 'title' };
             readonly model: { readonly column: 'model' };
+            readonly createdAt: { readonly column: 'createdAt' };
+            readonly updatedAt: { readonly column: 'updatedAt' };
+          };
+        };
+      };
+      readonly CreditGrant: {
+        readonly fields: {
+          readonly id: {
+            readonly nullable: false;
+            readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+          };
+          readonly userId: {
+            readonly nullable: false;
+            readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+          };
+          readonly kind: {
+            readonly nullable: false;
+            readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+          };
+          readonly creditMicroUsd: {
+            readonly nullable: false;
+            readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/int4@1' };
+          };
+          readonly feeMicroUsd: {
+            readonly nullable: false;
+            readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/int4@1' };
+          };
+          readonly paidMicroUsd: {
+            readonly nullable: false;
+            readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/int4@1' };
+          };
+          readonly stripeSessionId: {
+            readonly nullable: true;
+            readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+          };
+          readonly createdAt: {
+            readonly nullable: false;
+            readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/timestamptz@1' };
+          };
+          readonly updatedAt: {
+            readonly nullable: false;
+            readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/timestamptz@1' };
+          };
+        };
+        readonly relations: {
+          readonly user: {
+            readonly to: { readonly namespace: 'public' & NamespaceId; readonly model: 'User' };
+            readonly cardinality: 'N:1';
+            readonly on: {
+              readonly localFields: readonly ['userId'];
+              readonly targetFields: readonly ['id'];
+            };
+          };
+        };
+        readonly storage: {
+          readonly table: 'credit_grant';
+          readonly namespaceId: 'public';
+          readonly fields: {
+            readonly id: { readonly column: 'id' };
+            readonly userId: { readonly column: 'userId' };
+            readonly kind: { readonly column: 'kind' };
+            readonly creditMicroUsd: { readonly column: 'creditMicroUsd' };
+            readonly feeMicroUsd: { readonly column: 'feeMicroUsd' };
+            readonly paidMicroUsd: { readonly column: 'paidMicroUsd' };
+            readonly stripeSessionId: { readonly column: 'stripeSessionId' };
             readonly createdAt: { readonly column: 'createdAt' };
             readonly updatedAt: { readonly column: 'updatedAt' };
           };
@@ -857,8 +1121,27 @@ type ContractBase = Omit<
               readonly targetFields: readonly ['userId'];
             };
           };
+          readonly billing: {
+            readonly to: { readonly namespace: 'public' & NamespaceId; readonly model: 'Billing' };
+            readonly cardinality: '1:N';
+            readonly on: {
+              readonly localFields: readonly ['id'];
+              readonly targetFields: readonly ['userId'];
+            };
+          };
           readonly chats: {
             readonly to: { readonly namespace: 'public' & NamespaceId; readonly model: 'Chat' };
+            readonly cardinality: '1:N';
+            readonly on: {
+              readonly localFields: readonly ['id'];
+              readonly targetFields: readonly ['userId'];
+            };
+          };
+          readonly creditGrants: {
+            readonly to: {
+              readonly namespace: 'public' & NamespaceId;
+              readonly model: 'CreditGrant';
+            };
             readonly cardinality: '1:N';
             readonly on: {
               readonly localFields: readonly ['id'];
@@ -954,6 +1237,11 @@ type ContractBase = Omit<
     };
     readonly usage: { readonly namespace: 'public' & NamespaceId; readonly model: 'Usage' };
     readonly chat: { readonly namespace: 'public' & NamespaceId; readonly model: 'Chat' };
+    readonly billing: { readonly namespace: 'public' & NamespaceId; readonly model: 'Billing' };
+    readonly credit_grant: {
+      readonly namespace: 'public' & NamespaceId;
+      readonly model: 'CreditGrant';
+    };
   };
   readonly domain: {
     readonly namespaces: {
@@ -1044,6 +1332,51 @@ type ContractBase = Omit<
               };
             };
           };
+          readonly Billing: {
+            readonly fields: {
+              readonly id: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly userId: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly zeroAt: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/timestamptz@1' };
+              };
+              readonly createdAt: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/timestamptz@1' };
+              };
+              readonly updatedAt: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/timestamptz@1' };
+              };
+            };
+            readonly relations: {
+              readonly user: {
+                readonly to: { readonly namespace: 'public' & NamespaceId; readonly model: 'User' };
+                readonly cardinality: 'N:1';
+                readonly on: {
+                  readonly localFields: readonly ['userId'];
+                  readonly targetFields: readonly ['id'];
+                };
+              };
+            };
+            readonly storage: {
+              readonly table: 'billing';
+              readonly namespaceId: 'public';
+              readonly fields: {
+                readonly id: { readonly column: 'id' };
+                readonly userId: { readonly column: 'userId' };
+                readonly zeroAt: { readonly column: 'zeroAt' };
+                readonly createdAt: { readonly column: 'createdAt' };
+                readonly updatedAt: { readonly column: 'updatedAt' };
+              };
+            };
+          };
           readonly Chat: {
             readonly fields: {
               readonly id: {
@@ -1089,6 +1422,71 @@ type ContractBase = Omit<
                 readonly userId: { readonly column: 'userId' };
                 readonly title: { readonly column: 'title' };
                 readonly model: { readonly column: 'model' };
+                readonly createdAt: { readonly column: 'createdAt' };
+                readonly updatedAt: { readonly column: 'updatedAt' };
+              };
+            };
+          };
+          readonly CreditGrant: {
+            readonly fields: {
+              readonly id: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly userId: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly kind: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly creditMicroUsd: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/int4@1' };
+              };
+              readonly feeMicroUsd: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/int4@1' };
+              };
+              readonly paidMicroUsd: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/int4@1' };
+              };
+              readonly stripeSessionId: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly createdAt: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/timestamptz@1' };
+              };
+              readonly updatedAt: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/timestamptz@1' };
+              };
+            };
+            readonly relations: {
+              readonly user: {
+                readonly to: { readonly namespace: 'public' & NamespaceId; readonly model: 'User' };
+                readonly cardinality: 'N:1';
+                readonly on: {
+                  readonly localFields: readonly ['userId'];
+                  readonly targetFields: readonly ['id'];
+                };
+              };
+            };
+            readonly storage: {
+              readonly table: 'credit_grant';
+              readonly namespaceId: 'public';
+              readonly fields: {
+                readonly id: { readonly column: 'id' };
+                readonly userId: { readonly column: 'userId' };
+                readonly kind: { readonly column: 'kind' };
+                readonly creditMicroUsd: { readonly column: 'creditMicroUsd' };
+                readonly feeMicroUsd: { readonly column: 'feeMicroUsd' };
+                readonly paidMicroUsd: { readonly column: 'paidMicroUsd' };
+                readonly stripeSessionId: { readonly column: 'stripeSessionId' };
                 readonly createdAt: { readonly column: 'createdAt' };
                 readonly updatedAt: { readonly column: 'updatedAt' };
               };
@@ -1261,8 +1659,30 @@ type ContractBase = Omit<
                   readonly targetFields: readonly ['userId'];
                 };
               };
+              readonly billing: {
+                readonly to: {
+                  readonly namespace: 'public' & NamespaceId;
+                  readonly model: 'Billing';
+                };
+                readonly cardinality: '1:N';
+                readonly on: {
+                  readonly localFields: readonly ['id'];
+                  readonly targetFields: readonly ['userId'];
+                };
+              };
               readonly chats: {
                 readonly to: { readonly namespace: 'public' & NamespaceId; readonly model: 'Chat' };
+                readonly cardinality: '1:N';
+                readonly on: {
+                  readonly localFields: readonly ['id'];
+                  readonly targetFields: readonly ['userId'];
+                };
+              };
+              readonly creditGrants: {
+                readonly to: {
+                  readonly namespace: 'public' & NamespaceId;
+                  readonly model: 'CreditGrant';
+                };
                 readonly cardinality: '1:N';
                 readonly on: {
                   readonly localFields: readonly ['id'];
@@ -1379,7 +1799,17 @@ type ContractBase = Omit<
           readonly onUpdate: { readonly kind: 'generator'; readonly id: 'timestampNow' };
         },
         {
+          readonly ref: { readonly table: 'billing'; readonly column: 'updatedAt' };
+          readonly onCreate: { readonly kind: 'generator'; readonly id: 'timestampNow' };
+          readonly onUpdate: { readonly kind: 'generator'; readonly id: 'timestampNow' };
+        },
+        {
           readonly ref: { readonly table: 'chat'; readonly column: 'updatedAt' };
+          readonly onCreate: { readonly kind: 'generator'; readonly id: 'timestampNow' };
+          readonly onUpdate: { readonly kind: 'generator'; readonly id: 'timestampNow' };
+        },
+        {
+          readonly ref: { readonly table: 'credit_grant'; readonly column: 'updatedAt' };
           readonly onCreate: { readonly kind: 'generator'; readonly id: 'timestampNow' };
           readonly onUpdate: { readonly kind: 'generator'; readonly id: 'timestampNow' };
         },

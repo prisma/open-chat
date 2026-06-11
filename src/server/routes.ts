@@ -9,12 +9,23 @@ import {
   createChatSchema,
   renameChatSchema,
   sendMessageSchema,
+  topupCheckoutSchema,
+  type ConfigDto,
   type MessageEvent,
   type MessageEventInput,
+  type UsageDto,
 } from "../shared/contracts";
+import { GUEST_LIMIT_MICRO_USD, isTopupOption } from "../shared/billing";
 import { materializeMessages } from "../shared/messages";
 import { db } from "../prisma/db";
-import { auth } from "./auth";
+import { auth, configuredSocialProviders } from "./auth";
+import {
+  confirmTopup,
+  createTopupCheckout,
+  getCreditSummary,
+  handleStripeWebhook,
+} from "./billing";
+import { env } from "./env";
 import {
   HttpError,
   assertMethod,
@@ -34,9 +45,7 @@ import {
 } from "./streams";
 import {
   assertWithinUsageLimit,
-  currentPeriod,
-  getSpendMicroUsd,
-  limitMicroUsdFor,
+  getGuestSpendMicroUsd,
   recordUsage,
   summarizeUsage,
 } from "./usage";
@@ -331,7 +340,13 @@ async function sendMessage(request: Request, chatId: string) {
           usage: usageSummary,
         }),
       );
-      await recordUsage(user.id, usageSummary);
+      await recordUsage(
+        {
+          id: user.id,
+          isAnonymous: (user as { isAnonymous?: boolean | null }).isAnonymous,
+        },
+        usageSummary,
+      );
       await db.orm.Chat.where({ id: chat.id }).update({
         updatedAt: new Date(),
       });
@@ -379,14 +394,67 @@ async function getUsage(request: Request) {
   const isAnonymous = Boolean(
     (user as { isAnonymous?: boolean | null }).isAnonymous,
   );
-  const spentMicroUsd = await getSpendMicroUsd({ id: user.id, isAnonymous });
 
-  return json({
-    spentMicroUsd,
-    limitMicroUsd: limitMicroUsdFor({ id: user.id, isAnonymous }),
-    period: isAnonymous ? "lifetime" : currentPeriod(),
-    isAnonymous,
-  });
+  if (isAnonymous) {
+    const dto: UsageDto = {
+      isAnonymous: true,
+      spentMicroUsd: await getGuestSpendMicroUsd(user.id),
+      limitMicroUsd: GUEST_LIMIT_MICRO_USD,
+    };
+    return json(dto);
+  }
+
+  const summary = await getCreditSummary(user.id);
+  const dto: UsageDto = {
+    isAnonymous: false,
+    spentMicroUsd: summary.spentMicroUsd,
+    grantedMicroUsd: summary.grantedMicroUsd,
+    balanceMicroUsd: summary.balanceMicroUsd,
+    freeTopupAt: summary.freeTopupAt?.toISOString() ?? null,
+  };
+  return json(dto);
+}
+
+function getConfig(request: Request) {
+  assertMethod(request, ["GET"]);
+  const dto: ConfigDto = {
+    socialProviders: configuredSocialProviders(),
+    billingEnabled: Boolean(env.STRIPE_SECRET_KEY),
+  };
+  return json(dto);
+}
+
+async function createCheckout(request: Request) {
+  assertMethod(request, ["POST"]);
+  const user = await requireUser(request);
+  if ((user as { isAnonymous?: boolean | null }).isAnonymous) {
+    throw new HttpError(403, "Create an account to top up credits");
+  }
+
+  const input = topupCheckoutSchema.parse(await parseJson(request));
+  if (!isTopupOption(input.amountUsd)) {
+    throw new HttpError(400, "Unsupported top-up amount");
+  }
+
+  const checkout = await createTopupCheckout(
+    { id: user.id, email: user.email },
+    input.amountUsd,
+  );
+  return json({ url: checkout.url, quote: checkout.quote });
+}
+
+async function confirmCheckout(request: Request) {
+  assertMethod(request, ["GET"]);
+  const user = await requireUser(request);
+  const sessionId = new URL(request.url).searchParams.get("session_id");
+  if (!sessionId) throw new HttpError(400, "session_id is required");
+
+  return json(await confirmTopup(user.id, sessionId));
+}
+
+async function stripeWebhook(request: Request) {
+  assertMethod(request, ["POST"]);
+  return json(await handleStripeWebhook(request));
 }
 
 async function handleApi(request: Request) {
@@ -397,9 +465,13 @@ async function handleApi(request: Request) {
   }
 
   if (url.pathname === "/api/me") return getMe(request);
+  if (url.pathname === "/api/config") return getConfig(request);
   if (url.pathname === "/api/usage") return getUsage(request);
   if (url.pathname === "/api/chats") return listChats(request);
   if (url.pathname === "/api/models") return listModels(request);
+  if (url.pathname === "/api/billing/checkout") return createCheckout(request);
+  if (url.pathname === "/api/billing/confirm") return confirmCheckout(request);
+  if (url.pathname === "/api/billing/webhook") return stripeWebhook(request);
 
   const messageChatId = getPathId(url.pathname, "/api/chats/", "/messages");
   if (messageChatId) return sendMessage(request, messageChatId);

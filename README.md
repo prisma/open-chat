@@ -19,7 +19,8 @@ Every assistant token is appended to a durable stream **before** the browser ren
 
 - Streaming chat with any text model on [OpenRouter](https://openrouter.ai) — switch models mid-conversation; each message records which model wrote it
 - Durable, resumable streams: refresh, reconnect, or restart the server without losing tokens
-- Anonymous guest sessions with a lifetime budget; existing email/password accounts get a monthly one (public sign-up is disabled)
+- Anonymous guest sessions to try it instantly; sign up with email, GitHub, or Google and your guest chats come with you
+- Credit-based billing: $2.00 free on signup, Stripe top-ups from $5 to $100 with a transparent 10% fee, and a free $0.50 drip after a month at zero
 - Usage metering in micro-USD with a per-chat, per-model cost breakdown
 - Markdown rendering, message permalinks, chat search, rename, and delete
 - One process, no build step: Bun serves the API, the SSE proxy, and the React client

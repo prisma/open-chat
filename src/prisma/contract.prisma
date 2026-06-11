@@ -15,6 +15,10 @@ model User {
   accounts      Account[]
   chats         Chat[]
   usage         Usage[]
+  // Effectively one-to-one (userId is unique on Billing); the SQL provider
+  // only supports list back-references.
+  billing       Billing[]
+  creditGrants  CreditGrant[]
 
   @@map("user")
 }
@@ -94,4 +98,40 @@ model Chat {
 
   @@index([userId, updatedAt])
   @@map("chat")
+}
+
+// Per-user billing state. The credit balance itself is never stored — it is
+// sum(CreditGrant.creditMicroUsd) minus lifetime Usage cost — so this row
+// only tracks when the balance crossed zero, which starts the 30-day clock
+// for the free top-up.
+model Billing {
+  id        String    @id
+  userId    String    @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  zeroAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt temporal.updatedAt()
+
+  @@map("billing")
+}
+
+// Append-only credit ledger: the $2 signup grant, paid Stripe top-ups, and
+// free $0.50 drips. Deterministic ids and the unique stripeSessionId make
+// every grant idempotent.
+model CreditGrant {
+  id              String   @id
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind            String
+  // NOTE: no @default(0) — prisma-next 0.13.0 drops falsy literal defaults
+  // on emit; the app always writes these columns explicitly.
+  creditMicroUsd  Int
+  feeMicroUsd     Int
+  paidMicroUsd    Int
+  stripeSessionId String?  @unique
+  createdAt       DateTime @default(now())
+  updatedAt       temporal.updatedAt()
+
+  @@index([userId])
+  @@map("credit_grant")
 }

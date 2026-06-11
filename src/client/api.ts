@@ -1,9 +1,11 @@
 import type {
   ChatDto,
   ChatMessage,
+  ConfigDto,
   ModelDto,
   UsageDto,
 } from "../shared/contracts";
+import type { TopupQuote } from "../shared/billing";
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -61,6 +63,23 @@ export const api = {
   },
   usage: {
     get: () => requestJson<UsageDto>("/api/usage"),
+  },
+  config: {
+    get: () => requestJson<ConfigDto>("/api/config"),
+  },
+  billing: {
+    checkout: (amountUsd: number) =>
+      requestJson<{ url: string; quote: TopupQuote }>(
+        "/api/billing/checkout",
+        {
+          method: "POST",
+          body: JSON.stringify({ amountUsd }),
+        },
+      ),
+    confirm: (sessionId: string) =>
+      requestJson<{ creditMicroUsd: number }>(
+        `/api/billing/confirm?session_id=${encodeURIComponent(sessionId)}`,
+      ),
   },
 };
 

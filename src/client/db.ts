@@ -8,6 +8,7 @@ import { queryCollectionOptions } from "@tanstack/query-db-collection";
 import type {
   ChatDto,
   ChatMessage,
+  ConfigDto,
   ModelDto,
   StreamCheckpoint,
   UsageDto,
@@ -23,7 +24,10 @@ export type UiState = {
   selectedModel: string;
   modelPickerOpen: boolean;
   sidebarOpen: boolean;
+  authMode: "sign-in" | "sign-up";
   showAuthScreen: boolean;
+  topupOpen: boolean;
+  billingNotice?: string | undefined;
   isSigningOut: boolean;
   streamStatus: "idle" | "connecting" | "live" | "complete" | "error";
   streamError?: string | undefined;
@@ -70,6 +74,20 @@ export const usageCollection = createCollection(
   }),
 );
 
+export const configCollection = createCollection(
+  queryCollectionOptions<ConfigDto & { id: "config" }>({
+    id: "config",
+    queryClient,
+    queryKey: ["config"],
+    queryFn: async () => [
+      { id: "config" as const, ...(await api.config.get()) },
+    ],
+    staleTime: Infinity,
+    retry: 1,
+    getKey: (config): string => config.id,
+  }),
+);
+
 export const messagesCollection = createCollection(
   localOnlyCollectionOptions<ChatMessage, string>({
     id: "messages",
@@ -93,7 +111,9 @@ const initialUiState: UiState = {
   selectedModel: "openai/gpt-4.1-mini",
   modelPickerOpen: false,
   sidebarOpen: false,
+  authMode: "sign-in",
   showAuthScreen: false,
+  topupOpen: false,
   isSigningOut: false,
   streamStatus: "idle",
   editingTitle: "",
@@ -162,7 +182,10 @@ export function resetClientState() {
     state.selectedModel = "openai/gpt-4.1-mini";
     state.modelPickerOpen = false;
     state.sidebarOpen = false;
+    state.authMode = "sign-in";
     state.showAuthScreen = false;
+    state.topupOpen = false;
+    state.billingNotice = undefined;
     state.isSigningOut = false;
     state.streamStatus = "idle";
     state.streamError = undefined;

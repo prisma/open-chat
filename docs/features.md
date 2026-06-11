@@ -4,68 +4,76 @@ This file is both product documentation and a verification checklist. Each flow 
 
 ## 1. Guest Session
 
-A first-time visitor is signed in automatically as an anonymous guest and can chat immediately within a small lifetime budget.
+A first-time visitor is signed in automatically as an anonymous guest and can chat immediately within a small lifetime budget ($0.50).
 
-## 2. Sign In
+## 2. Sign Up
 
-An existing user can sign in with email and password and land in the chat app. Public registration is closed (`disableSignUp` in `src/server/auth.ts`); guests are the default way in.
+A new user can create an account with email/password, GitHub, or Google, and receives $2.00 in free credit. If they were chatting as a guest, their chats — including the durable stream events — migrate to the new account.
 
-## 3. Sign Out
+## 3. Sign In
+
+An existing user can sign in with email/password, GitHub, or Google. Social providers appear only when their credentials are configured.
+
+## 4. Sign Out
 
 The active session can be revoked and the app returns to a fresh guest state with no data from the previous identity.
 
-## 4. Create Chat
+## 5. Credits And Top-Ups
+
+Spend draws down the account's credit balance. Users top up in fixed increments ($5–$100) through Stripe Checkout; a transparent 10% fee on top covers Stripe and OpenRouter costs, and the exact total is shown before checkout. An account that has sat at $0 for a month automatically receives a free $0.50 top-up.
+
+## 6. Create Chat
 
 The user can create a new chat. Postgres stores the chat row with owner, title, model, and timestamps. The first message renames the chat from its prompt.
 
-## 5. List And Search Chats
+## 7. List And Search Chats
 
 The sidebar lists only the signed-in user's chats, grouped by recency and filterable with `⌘K` search.
 
-## 6. Rename And Delete Chat
+## 8. Rename And Delete Chat
 
 The user can rename or delete a chat. Changes are persisted in Postgres and reflected in TanStack DB.
 
-## 7. Select Model
+## 9. Select Model
 
 The user can search and select an OpenRouter model. The app supports model ids returned by OpenRouter rather than a hard-coded allowlist, and the model can change mid-chat.
 
-## 8. Send User Message
+## 10. Send User Message
 
 Submitting the composer appends a durable user message event to Prisma Streams with routing key `chat:<chatId>`.
 
-## 9. Stream Assistant Response
+## 11. Stream Assistant Response
 
 Assistant output streams smoothly into the transcript with markdown rendering. Each delta is durable before the browser applies it, allowing reconnect and refresh recovery.
 
-## 10. Resume Chat After Refresh
+## 12. Resume Chat After Refresh
 
 Reloading the browser replays durable events from Prisma Streams for the selected chat and reconstructs message state.
 
-## 11. Switch Chats
+## 13. Switch Chats
 
 Switching chats changes the active routing key, clears transient stream state, replays the selected chat history, and leaves other chat data intact.
 
-## 12. Message Permalinks
+## 14. Message Permalinks
 
 Every message has a stable `#/chat/:chatId/message/:messageId` link. Opening one loads the chat, scrolls to the message, and highlights it.
 
-## 13. Per-Message Model Attribution
+## 15. Per-Message Model Attribution
 
 Each assistant message records the model that produced it. The hover meta row under a message shows the model, so multi-model chats stay legible.
 
-## 14. Usage Tracking And Budgets
+## 16. Usage Tracking And Budgets
 
-Every completed assistant turn records tokens and cost (micro-USD) in Postgres. The sidebar meter shows spend against the guest or monthly budget, and the server rejects prompts once the budget is exhausted. The chat header shows a per-chat, per-model cost breakdown.
+Every completed assistant turn records tokens and cost (micro-USD) in Postgres. Guests see spend against their lifetime budget; signed-in users see their remaining credit balance. The server rejects prompts once the budget or balance is exhausted. The chat header shows a per-chat, per-model cost breakdown.
 
-## 15. Handle Model Errors
+## 17. Handle Model Errors
 
 If OpenRouter returns a pre-stream or mid-stream error, the assistant message is marked failed through a durable `message.error` event.
 
-## 16. Auth-Protected Streams
+## 18. Auth-Protected Streams
 
 Opening a message stream for another user's chat fails because Bun validates session and chat ownership before proxying Prisma Streams.
 
-## 17. Local-Only Operation
+## 19. Local-Only Operation
 
 With local Prisma Postgres and local Prisma Streams running, all app data except model calls stays on the machine.

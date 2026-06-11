@@ -89,11 +89,28 @@ export const usageSummarySchema = z.object({
 
 export type UsageSummary = z.infer<typeof usageSummarySchema>;
 
-export type UsageDto = {
-  spentMicroUsd: number;
-  limitMicroUsd: number;
-  period: string;
-  isAnonymous: boolean;
+export type UsageDto =
+  | {
+      isAnonymous: true;
+      spentMicroUsd: number;
+      limitMicroUsd: number;
+    }
+  | {
+      isAnonymous: false;
+      spentMicroUsd: number;
+      grantedMicroUsd: number;
+      balanceMicroUsd: number;
+      /** ISO date when the free top-up unlocks; null unless at $0. */
+      freeTopupAt: string | null;
+    };
+
+export const topupCheckoutSchema = z.object({
+  amountUsd: z.number().int().positive(),
+});
+
+export type ConfigDto = {
+  socialProviders: Array<string>;
+  billingEnabled: boolean;
 };
 
 export type ChatMessage = {
