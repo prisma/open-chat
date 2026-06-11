@@ -27,5 +27,9 @@
     ],
     "resolveJsonModule": true
   },
-  "include": ["src", "prisma-next.config.ts", "tests"]
+  "include": ["src", "prisma-next.config.ts", "tests"],
+  // The streams app imports @prisma/streams-server, which ships raw .ts
+  // sources that don't pass this project's compiler settings. The entry is
+  // a ~20-line env bootstrap; it is verified at runtime instead.
+  "exclude": ["src/streams-app"]
 }
