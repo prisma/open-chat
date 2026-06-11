@@ -35,6 +35,8 @@ Prisma Streams stores chat message events:
 - assistant completion metadata
 - assistant error records
 
+Prisma Streams also carries a billing audit log: every Stripe webhook hit — processed events with their outcome (`credited`, `already-credited`, `ignored`) and rejected requests with the reason — is appended to a dedicated `billing_webhooks` stream (routing key `stripe`). The CreditGrant ledger in Postgres stays the source of truth for money; the stream answers "did Stripe call us, and what did we do about it?" after the fact.
+
 This split keeps chat listing cheap in Postgres while preserving durable, resumable message delivery in Streams.
 
 ## Stream And Routing Key Pattern

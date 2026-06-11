@@ -63,8 +63,7 @@ async function streamsFetch(path: string, init?: RequestInit) {
   return response;
 }
 
-async function ensureUserStream(userId: string) {
-  const streamName = streamNameForUser(userId);
+async function ensureStream(streamName: string) {
   if (createdStreams.has(streamName)) return streamName;
 
   await streamsFetch(`/v1/stream/${encodeURIComponent(streamName)}`, {
@@ -77,25 +76,38 @@ async function ensureUserStream(userId: string) {
   return streamName;
 }
 
-export async function appendMessageEvent(
-  userId: string,
-  chatId: string,
-  event: MessageEvent,
+/** Append arbitrary JSON events to a named stream under a routing key. */
+export async function appendStreamEvents(
+  streamName: string,
+  routingKey: string,
+  events: Array<unknown>,
 ) {
-  const streamName = await ensureUserStream(userId);
+  await ensureStream(streamName);
   const response = await streamsFetch(
     `/v1/stream/${encodeURIComponent(streamName)}`,
     {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "stream-key": chatRoutingKey(chatId),
+        "stream-key": routingKey,
       },
-      body: JSON.stringify([event]),
+      body: JSON.stringify(events),
     },
   );
 
   return response.headers.get("stream-next-offset") ?? "-1";
+}
+
+export async function appendMessageEvent(
+  userId: string,
+  chatId: string,
+  event: MessageEvent,
+) {
+  return appendStreamEvents(
+    streamNameForUser(userId),
+    chatRoutingKey(chatId),
+    [event],
+  );
 }
 
 export async function readMessageEvents(
@@ -104,7 +116,7 @@ export async function readMessageEvents(
   offset: string,
   options?: { live?: boolean; signal?: AbortSignal },
 ) {
-  const streamName = await ensureUserStream(userId);
+  const streamName = await ensureStream(streamNameForUser(userId));
   const url = new URL(
     `/v1/stream/${encodeURIComponent(streamName)}`,
     "http://streams.local",

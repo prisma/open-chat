@@ -17,6 +17,25 @@ import {
 import { db } from "../prisma/db";
 import { env } from "./env";
 import { HttpError } from "./http";
+import { appendStreamEvents } from "./streams";
+
+// Every webhook hit — verified or rejected — is appended to a dedicated
+// durable stream, so "did Stripe call us, and what did we do about it?"
+// is answerable after the fact. The CreditGrant ledger stays the source
+// of truth for money; this stream is the audit trail.
+const WEBHOOK_STREAM = "billing_webhooks";
+const WEBHOOK_ROUTING_KEY = "stripe";
+
+async function logWebhook(record: Record<string, unknown>) {
+  try {
+    await appendStreamEvents(WEBHOOK_STREAM, WEBHOOK_ROUTING_KEY, [
+      { receivedAt: new Date().toISOString(), ...record },
+    ]);
+  } catch (error) {
+    // The audit log must never block payment processing.
+    console.error("Failed to append webhook audit event", error);
+  }
+}
 
 let stripeClient: Stripe | undefined;
 
@@ -242,22 +261,51 @@ export async function handleStripeWebhook(request: Request) {
     throw new HttpError(501, "Stripe webhook secret is not configured");
   }
   const stripe = getStripe();
+  const body = await request.text();
   const signature = request.headers.get("stripe-signature");
-  if (!signature) throw new HttpError(400, "Missing stripe-signature header");
+  if (!signature) {
+    await logWebhook({ kind: "rejected", reason: "missing-signature" });
+    throw new HttpError(400, "Missing stripe-signature header");
+  }
 
   let event: Stripe.Event;
   try {
     event = await stripe.webhooks.constructEventAsync(
-      await request.text(),
+      body,
       signature,
       env.STRIPE_WEBHOOK_SECRET,
     );
   } catch {
+    await logWebhook({
+      kind: "rejected",
+      reason: "invalid-signature",
+      bodyBytes: body.length,
+    });
     throw new HttpError(400, "Invalid webhook signature");
   }
 
   if (event.type === "checkout.session.completed") {
-    await creditPaidSession(event.data.object);
+    const session = event.data.object;
+    const result = await creditPaidSession(session);
+    await logWebhook({
+      kind: "processed",
+      eventId: event.id,
+      type: event.type,
+      livemode: event.livemode,
+      sessionId: session.id,
+      userId: result.userId,
+      creditMicroUsd: result.creditMicroUsd,
+      amountTotalCents: session.amount_total,
+      outcome: result.alreadyCredited ? "already-credited" : "credited",
+    });
+  } else {
+    await logWebhook({
+      kind: "processed",
+      eventId: event.id,
+      type: event.type,
+      livemode: event.livemode,
+      outcome: "ignored",
+    });
   }
   return { received: true };
 }
