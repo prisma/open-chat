@@ -49,6 +49,26 @@ Sending a message appends a durable `message.created` event, then streams the mo
 
 The full design is written up in [`docs/architecture.md`](docs/architecture.md).
 
+## A tour of the code
+
+The whole app is ~5,500 lines, and the durable-streaming core is much smaller
+than that. Reading these files in order tells the entire story:
+
+| | File | What it shows |
+| --- | --- | --- |
+| 1 | [`src/prisma/contract.prisma`](src/prisma/contract.prisma) | The **Prisma Next** contract: users, sessions, chats, usage — everything relational, fully typed end to end |
+| 2 | [`src/server/streams.ts`](src/server/streams.ts) | The **Prisma Streams** client: one append-only stream per user, one routing key per chat, reads resumable from any offset |
+| 3 | [`src/server/routes/messages.ts`](src/server/routes/messages.ts) | The core path: append the user's message durably, stream model deltas into the same log, tail it over SSE |
+| 4 | [`src/shared/messages.ts`](src/shared/messages.ts) | The materializer that folds the event log into messages — shared by server-side replay and the live client feed, so both always agree |
+| 5 | [`src/client/stream.ts`](src/client/stream.ts) | The client side of resumability: consume SSE, fold events, reconnect from the last offset |
+| 6 | [`src/client/db.ts`](src/client/db.ts) | UI state as TanStack DB collections over the API |
+| 7 | [`src/streams-app/index.ts`](src/streams-app/index.ts) | The deployable Streams service: `@prisma/streams-server` with R2 as the durable tier, in ~30 lines of deployment defaults |
+
+Everything else is ordinary app code: route handlers grouped by domain in
+[`src/server/routes/`](src/server/routes), React components in
+[`src/client/components/`](src/client/components), and billing/auth as
+supporting features around the core.
+
 ## Getting started
 
 You need [Bun](https://bun.sh) ≥ 1.2 and an [OpenRouter API key](https://openrouter.ai/keys).
@@ -120,11 +140,12 @@ That's it — the CLI builds locally, uploads, and the deployment is live in sec
 
 | Path | What lives there |
 | --- | --- |
-| [`src/server/`](src/server) | Bun HTTP server: routes, SSE stream proxy, OpenRouter client, usage budgets, auth |
-| [`src/client/`](src/client) | React UI on TanStack DB collections and live queries |
+| [`src/server/`](src/server) | Bun HTTP server; route handlers grouped by domain in [`routes/`](src/server/routes), plus the Streams client, OpenRouter client, usage budgets, and auth |
+| [`src/client/`](src/client) | React UI: a thin [`App.tsx`](src/client/App.tsx) gate, views in [`components/`](src/client/components), state as TanStack DB collections in [`db.ts`](src/client/db.ts) |
 | [`src/shared/`](src/shared) | Zod contracts and the event-log → message materializer, shared by both sides |
 | [`src/prisma/`](src/prisma) | Prisma Next contract and the typed database client |
-| [`docs/`](docs) | Architecture, feature checklist, design system, verification log |
+| [`src/streams-app/`](src/streams-app) | The standalone Streams service deployed next to the app |
+| [`docs/`](docs) | Architecture, feature checklist, design system, verification log; brand assets in [`docs/logo/`](docs/logo) |
 
 ## Scripts
 
