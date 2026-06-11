@@ -88,10 +88,18 @@ bunx @prisma/cli@latest project create my-open-chat
 bunx @prisma/cli@latest database connection create <database-id>   # prints DATABASE_URL
 DATABASE_URL=<that-url> bun run db:init
 
-# 3. Deploy the Streams service (pick any long random key)
+# 3. Deploy the Streams service (pick any long random key). The R2_* vars
+#    are strongly recommended in production: the instance disk is ephemeral,
+#    so without them chat history dies whenever the platform replaces the
+#    instance. Any S3-compatible bucket works.
 bunx @prisma/cli@latest app deploy --app Streams \
   --framework bun --entry src/streams-app/index.ts --http-port 8080 \
-  --env STREAMS_API_KEY=<random-key> --no-db --prod --yes
+  --env STREAMS_API_KEY=<random-key> \
+  --env R2_ACCESS_KEY_ID=<r2-access-key> \
+  --env R2_SECRET_ACCESS_KEY=<r2-secret> \
+  --env R2_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com \
+  --env R2_BUCKET=<bucket-name> \
+  --no-db --prod --yes
 
 # 4. Deploy the chat app, pointing it at the database and the Streams URL from step 3
 bunx @prisma/cli@latest app deploy --app open-chat \
