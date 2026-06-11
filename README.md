@@ -27,6 +27,7 @@ Every assistant token is appended to a durable stream **before** the browser ren
 - Credit-based billing: $2.00 free on signup, Stripe top-ups from $5 to $100 with a transparent 10% fee, and a free $0.50 drip after a month at zero
 - Usage metering in micro-USD with a per-chat, per-model cost breakdown
 - Markdown rendering, message permalinks, chat search, rename, and delete
+- A public [/stats](https://oss.chat/stats) page of anonymous usage aggregates — counts and token sums only, drawn with dependency-free SVG charts
 - One process, no build step: Bun serves the API, the SSE proxy, and the React client
 
 ## How it works

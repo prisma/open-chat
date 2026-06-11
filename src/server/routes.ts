@@ -18,6 +18,7 @@ import {
 } from "./routes/billing";
 import { listChats, updateChat } from "./routes/chats";
 import { getMessages, sendMessage, streamEvents } from "./routes/messages";
+import { getStats } from "./routes/stats";
 
 async function handleApi(request: Request) {
   const url = new URL(request.url);
@@ -26,6 +27,7 @@ async function handleApi(request: Request) {
     return auth.handler(request);
   }
 
+  if (url.pathname === "/api/stats") return getStats(request);
   if (url.pathname === "/api/me") return getMe(request);
   if (url.pathname === "/api/config") return getConfig(request);
   if (url.pathname === "/api/usage") return getUsage(request);

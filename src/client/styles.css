@@ -1358,3 +1358,162 @@ textarea {
     max-width: 88%;
   }
 }
+
+/* ---------- Stats page ---------- */
+
+.stats-page {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.stats-page main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 56px 24px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.stats-head .wordmark {
+  color: inherit;
+  text-decoration: none;
+  margin-bottom: 28px;
+}
+
+.stats-head h1 {
+  font-size: 26px;
+  letter-spacing: -0.02em;
+  margin: 0 0 6px;
+}
+
+.stats-head p {
+  margin: 0 0 12px;
+  color: var(--text-2);
+  font-size: 14px;
+}
+
+.stats-totals {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.stats-total {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stats-total strong {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.stats-total span {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.stats-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px 20px 14px;
+}
+
+.stats-card h2 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin: 0 0 14px;
+}
+
+.stats-chart {
+  display: block;
+  width: 100%;
+  height: 120px;
+}
+
+.stats-area {
+  fill: var(--accent);
+  opacity: 0.12;
+}
+
+.stats-line {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.stats-axis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-3);
+  font-size: 11px;
+  margin-top: 8px;
+}
+
+.stats-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 24px;
+  height: 140px;
+  padding-top: 8px;
+}
+
+.stats-bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  height: 100%;
+  width: 72px;
+}
+
+.stats-bar {
+  width: 100%;
+  background: var(--accent);
+  opacity: 0.85;
+  border-radius: 4px 4px 0 0;
+}
+
+.stats-bar-value {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.stats-bar-label {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.stats-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.stats-foot a {
+  color: var(--text-2);
+}
+
+.stats-error {
+  color: var(--text-2);
+  text-align: center;
+  margin-top: 40vh;
+}
+
+@media (max-width: 640px) {
+  .stats-totals {
+    grid-template-columns: 1fr;
+  }
+}
