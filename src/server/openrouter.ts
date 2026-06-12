@@ -121,8 +121,11 @@ export type StreamDelta = {
 // A dead socket stops producing bytes; a wedged generation keeps the
 // connection alive with keep-alive comments forever. Guard against both —
 // without these, a hung upstream leaves the assistant message "streaming"
-// in the durable log indefinitely.
+// in the durable log indefinitely. The progress timer is the middle tier:
+// keep-alives reset the idle timer but not it, so a generation that stops
+// producing content errors out in minutes, not at the total cap.
 const IDLE_TIMEOUT_MS = 90_000;
+const PROGRESS_TIMEOUT_MS = 3 * 60_000;
 const TOTAL_TIMEOUT_MS = 10 * 60_000;
 
 // Streams a chat completion straight off OpenRouter's wire API. The
@@ -144,6 +147,10 @@ export async function* streamChatCompletion(input: {
   let idleTimer = setTimeout(
     () => watchdog.abort(new Error("The model stream stalled")),
     IDLE_TIMEOUT_MS,
+  );
+  let progressTimer = setTimeout(
+    () => watchdog.abort(new Error("The model stopped making progress")),
+    PROGRESS_TIMEOUT_MS,
   );
 
   try {
@@ -230,6 +237,13 @@ export async function* streamChatCompletion(input: {
       const images = (choice?.delta?.images ?? [])
         .map((image) => image.image_url?.url ?? "")
         .filter(Boolean);
+      if (choice?.delta?.content || images.length || choice?.delta?.audio) {
+        clearTimeout(progressTimer);
+        progressTimer = setTimeout(
+          () => watchdog.abort(new Error("The model stopped making progress")),
+          PROGRESS_TIMEOUT_MS,
+        );
+      }
       yield {
         ...(choice?.delta?.content ? { text: choice.delta.content } : {}),
         ...(images.length ? { images } : {}),
@@ -263,6 +277,7 @@ export async function* streamChatCompletion(input: {
   } finally {
     clearTimeout(totalTimer);
     clearTimeout(idleTimer);
+    clearTimeout(progressTimer);
   }
 }
 
