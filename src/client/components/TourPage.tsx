@@ -7,6 +7,8 @@ import { useEffect } from "react";
 import { dismissBootScreen } from "../boot";
 import { GitHubMark } from "./GitHubMark";
 import { LogoMark } from "./LogoMark";
+import tourApp from "../assets/tour-app.webp";
+import tourConsole from "../assets/tour-console.webp";
 
 const REPO = "https://github.com/prisma/open-chat";
 const blob = (path: string) => `${REPO}/blob/main/${path}`;
@@ -138,11 +140,17 @@ function FlowDiagram() {
       <path id="tf-deltas" className="td-edge td-edge-deltas" d="M700 145 C655 160 645 205 590 218" />
       {/* 4: server -> streams (durable append) */}
       <path id="tf-append" className="td-edge td-edge-durable" d="M480 340 V420" />
-      {/* 5: streams -> browser via SSE (through the server's proxy) */}
+      {/* 5: streams -> browser, but always through the server's authed proxy:
+          leg A climbs back into the Bun server, leg B exits to the browser. */}
       <path
-        id="tf-sse"
+        id="tf-tail-a"
         className="td-edge td-edge-durable"
-        d="M340 475 C200 470 150 400 140 320"
+        d="M404 420 C394 392 398 364 412 340"
+      />
+      <path
+        id="tf-tail-b"
+        className="td-edge td-edge-durable"
+        d="M370 262 C330 270 290 270 250 262"
       />
       {/* 6: server <-> postgres */}
       <path id="tf-sql" className="td-edge" d="M590 320 C660 360 680 400 718 420" />
@@ -160,8 +168,11 @@ function FlowDiagram() {
       <text x="494" y="390" className="td-label td-label-durable" textAnchor="start">
         4 · append first
       </text>
-      <text x="195" y="420" className="td-label td-label-durable" textAnchor="middle">
+      <text x="310" y="246" className="td-label td-label-durable" textAnchor="middle">
         5 · SSE tail
+      </text>
+      <text x="310" y="292" className="td-note" textAnchor="middle">
+        proxied · session-checked
       </text>
       <text x="680" y="390" className="td-label" textAnchor="middle">
         6 · metadata
@@ -207,16 +218,30 @@ function FlowDiagram() {
         </circle>
       ))}
       {[0, 1, 2].map((i) => (
-        <circle r="4" className="td-tok td-tok-durable" key={`s${i}`}>
+        <circle r="4" className="td-tok td-tok-durable" key={`sa${i}`}>
           <animateMotion
             dur="6s"
             begin={`${3.7 + i * 0.5}s`}
             repeatCount="indefinite"
             keyPoints="0;1;1"
-            keyTimes="0;0.2;1"
+            keyTimes="0;0.1;1"
             calcMode="linear"
           >
-            <mpath href="#tf-sse" />
+            <mpath href="#tf-tail-a" />
+          </animateMotion>
+        </circle>
+      ))}
+      {[0, 1, 2].map((i) => (
+        <circle r="4" className="td-tok td-tok-durable" key={`sb${i}`}>
+          <animateMotion
+            dur="6s"
+            begin={`${4.1 + i * 0.5}s`}
+            repeatCount="indefinite"
+            keyPoints="0;1;1"
+            keyTimes="0;0.12;1"
+            calcMode="linear"
+          >
+            <mpath href="#tf-tail-b" />
           </animateMotion>
         </circle>
       ))}
@@ -225,6 +250,102 @@ function FlowDiagram() {
           <mpath href="#tf-sql" />
         </animateMotion>
       </circle>
+    </svg>
+  );
+}
+
+/**
+ * How data is laid out inside Prisma Streams: one append-only stream per
+ * user, with each chat as a routing key whose events interleave freely.
+ * A key-filtered read picks out one chat and can resume from any offset.
+ */
+const LANE1_KEYS = "abab cbac bab c abab".replace(/ /g, "").split("");
+
+function StreamLayoutDiagram() {
+  const cellX = (i: number) => 50 + i * 52;
+  const resumeAt = 8;
+  return (
+    <svg
+      className="tour-diagram tour-streams-diagram"
+      viewBox="0 0 920 350"
+      role="img"
+      aria-label="Diagram: two per-user streams. Inside one stream, events from three chats interleave as colored cells, identified by routing keys. A marker shows a key-filtered read resuming from offset 8, returning only that chat's events."
+    >
+      <text x="30" y="28" className="ts-name">
+        u_3f9c…_messages
+      </text>
+      <text x="890" y="28" className="td-note" textAnchor="end">
+        one append-only stream per user
+      </text>
+      <rect x="30" y="44" width="860" height="78" rx="12" className="ts-lane" />
+      <line
+        x1={cellX(resumeAt) - 4}
+        y1="40"
+        x2={cellX(resumeAt) - 4}
+        y2="160"
+        className="ts-resume"
+      />
+      {LANE1_KEYS.map((key, i) => (
+        <rect
+          key={i}
+          x={cellX(i)}
+          y="60"
+          width="46"
+          height="46"
+          rx="8"
+          className={`ts-cell ts-cell-${key}${
+            key === "b" && i >= resumeAt ? " ts-cell-read" : ""
+          }`}
+        />
+      ))}
+      <text x="50" y="146" className="td-note">
+        offset 0
+      </text>
+      <text x="890" y="146" className="td-note" textAnchor="end">
+        appends → live
+      </text>
+      <text
+        x={cellX(resumeAt) + 6}
+        y="158"
+        className="td-label td-label-durable"
+      >
+        read key=chat:cows from offset {resumeAt} → only ▮▮, then live
+      </text>
+
+      <text x="30" y="212" className="ts-name">
+        u_77b2…_messages
+      </text>
+      <rect x="30" y="226" width="860" height="78" rx="12" className="ts-lane" />
+      {["a", "c", "a", "a", "c", "a"].map((key, i) => (
+        <rect
+          key={i}
+          x={cellX(i)}
+          y="242"
+          width="46"
+          height="46"
+          rx="8"
+          className={`ts-cell ts-cell-${key} ts-dim`}
+        />
+      ))}
+      <text x={cellX(6) + 10} y="274" className="ts-name">
+        …
+      </text>
+
+      <rect x="30" y="326" width="12" height="12" rx="3" className="ts-cell ts-cell-a" />
+      <text x="48" y="337" className="td-note">
+        chat:cats
+      </text>
+      <rect x="124" y="326" width="12" height="12" rx="3" className="ts-cell ts-cell-b" />
+      <text x="142" y="337" className="td-note">
+        chat:cows
+      </text>
+      <rect x="226" y="326" width="12" height="12" rx="3" className="ts-cell ts-cell-c" />
+      <text x="244" y="337" className="td-note">
+        chat:haiku
+      </text>
+      <text x="890" y="337" className="td-note" textAnchor="end">
+        routing keys — chats interleave freely in one log
+      </text>
     </svg>
   );
 }
@@ -238,7 +359,7 @@ const FLOW_STEPS: Array<{ n: string; title: string; body: string }> = [
   {
     n: "2",
     title: "The server asks the model",
-    body: "One streaming call to OpenRouter — any text model in their catalog, switchable mid-chat.",
+    body: "One streaming call to OpenRouter — any model in their catalog: text, vision, or image generation, switchable mid-chat.",
   },
   {
     n: "3",
@@ -253,12 +374,12 @@ const FLOW_STEPS: Array<{ n: string; title: string; body: string }> = [
   {
     n: "5",
     title: "The browser tails the log",
-    body: "An SSE connection replays from any offset and then follows live. Refresh mid-answer and the reply resumes exactly where it was.",
+    body: "An SSE connection replays from any offset, then follows live. It never touches Streams directly — the Bun server on Prisma Compute proxies the tail and checks your session first. Refresh mid-answer and the reply resumes exactly where it was.",
   },
   {
     n: "6",
     title: "Metadata stays relational",
-    body: "Chat titles, accounts, and credits live in Prisma Postgres, queried through Prisma Next's typed client.",
+    body: "Chat titles, accounts, and credits live in Prisma Postgres, queried through Prisma Next's typed client. In the browser, TanStack DB joins both worlds — relational data and the live event stream — into one set of live queries.",
   },
 ];
 
@@ -420,14 +541,26 @@ export function TourPage() {
             }
           />
           <Reveal>
+            <StreamLayoutDiagram />
+          </Reveal>
+          <Reveal>
             <pre className="tour-code">
               <span className="c">{"// append: durable before the UI sees it"}</span>
               {"\n"}
-              {"POST /v1/stream/u_3f9c…_messages\n"}
-              {"stream-key: chat:chat_38eb…\n\n"}
+              <span className="tk-kw">POST</span>
+              {" /v1/stream/u_3f9c…_messages\n"}
+              <span className="tk-attr">stream-key</span>
+              {": chat:chat_38eb…\n\n"}
               <span className="c">{"// read: replay + live tail from any offset"}</span>
               {"\n"}
-              {"GET  /v1/stream/u_3f9c…_messages?offset=412&live=true&key=chat:chat_38eb…"}
+              <span className="tk-kw">GET</span>
+              {"  /v1/stream/u_3f9c…_messages?"}
+              <span className="tk-attr">offset</span>
+              {"=412&"}
+              <span className="tk-attr">live</span>
+              {"=true&"}
+              <span className="tk-attr">key</span>
+              {"=chat:chat_38eb…"}
             </pre>
             <p className="tour-caption">
               The whole client is ~140 lines:{" "}
@@ -461,18 +594,39 @@ export function TourPage() {
             <pre className="tour-code">
               <span className="c">{"// src/prisma/contract.prisma"}</span>
               {"\n"}
-              {"model Chat {\n"}
-              {"  id        String   @id\n"}
-              {"  userId    String\n"}
-              {"  title     String\n"}
-              {"  model     String\n"}
-              {"  updatedAt temporal.updatedAt()\n"}
-              {"}\n\n"}
+              <span className="tk-kw">model</span>{" "}
+              <span className="tk-type">Chat</span>
+              {" {\n  id        "}
+              <span className="tk-type">String</span>
+              {"   "}
+              <span className="tk-attr">@id</span>
+              {"\n  userId    "}
+              <span className="tk-type">String</span>
+              {"\n  title     "}
+              <span className="tk-type">String</span>
+              {"\n  model     "}
+              <span className="tk-type">String</span>
+              {"\n  updatedAt "}
+              <span className="tk-fn">temporal.updatedAt()</span>
+              {"\n}\n\n"}
               <span className="c">{"// anywhere on the server — fully typed"}</span>
               {"\n"}
-              {"const chats = await db.orm.Chat.where({ userId })\n"}
-              {"  .orderBy((chat) => chat.updatedAt.desc())\n"}
-              {"  .all();"}
+              <span className="tk-kw">const</span>
+              {" chats = "}
+              <span className="tk-kw">await</span>
+              {" db.orm."}
+              <span className="tk-type">Chat</span>
+              {"."}
+              <span className="tk-fn">where</span>
+              {"({ userId })\n  ."}
+              <span className="tk-fn">orderBy</span>
+              {"((chat) "}
+              <span className="tk-kw">{"=>"}</span>
+              {" chat.updatedAt."}
+              <span className="tk-fn">desc</span>
+              {"())\n  ."}
+              <span className="tk-fn">all</span>
+              {"();"}
             </pre>
             <p className="tour-caption">
               The contract:{" "}
@@ -504,10 +658,14 @@ export function TourPage() {
             <pre className="tour-code">
               <span className="c">{"// events fold into a collection…"}</span>
               {"\n"}
-              {"applyMessageEvent(messages, event);\n\n"}
+              <span className="tk-fn">applyMessageEvent</span>
+              {"(messages, event);\n\n"}
               <span className="c">{"// …and components just query it"}</span>
               {"\n"}
-              {"const { data: messages } = useLiveQuery(messagesCollection);"}
+              <span className="tk-kw">const</span>
+              {" { data: messages } = "}
+              <span className="tk-fn">useLiveQuery</span>
+              {"(messagesCollection);"}
             </pre>
             <p className="tour-caption">
               All client state in one file:{" "}
@@ -551,6 +709,27 @@ export function TourPage() {
                 README · Deploy to Prisma Compute
               </DocLink>
             </p>
+          </Reveal>
+          <Reveal>
+            <figure className="tour-shot">
+              <img
+                src={tourConsole}
+                alt="Prisma Console showing the open-chat project: the Streams and open-chat apps plus the primary database, live on the main branch"
+                loading="lazy"
+              />
+              <figcaption>
+                The whole production setup in{" "}
+                <a
+                  href="https://console.prisma.io"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  console.prisma.io
+                </a>
+                : two apps and the primary database, live on the{" "}
+                <span className="mono">main</span> branch.
+              </figcaption>
+            </figure>
           </Reveal>
         </section>
 
@@ -598,10 +777,31 @@ export function TourPage() {
       {/* ---------- Footer ---------- */}
       <footer className="tour-foot">
         <Reveal>
+          <figure className="tour-shot tour-shot-app">
+            <img
+              src={tourApp}
+              alt="Open Chat running at oss.chat: an image-generation chat where a painted purple cat is revised to yellow"
+              loading="lazy"
+            />
+          </figure>
+        </Reveal>
+        <Reveal>
           <h2>Now read it running.</h2>
+          <p className="tour-foot-lede">
+            Everything on this page is live at oss.chat — and everything
+            behind it deploys with one CLI command.
+          </p>
           <div className="tour-cta">
             <a className="button primary" href="/">
-              Open the app
+              Try Open Chat
+            </a>
+            <a
+              className="button"
+              href="https://console.prisma.io"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Try Prisma Compute
             </a>
             <a className="button" href={REPO} target="_blank" rel="noreferrer">
               <GitHubMark size={15} /> prisma/open-chat

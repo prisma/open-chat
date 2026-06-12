@@ -21,7 +21,7 @@ Every assistant token is appended to a durable stream **before** the browser ren
 
 ## Features
 
-- Streaming chat with any text model on [OpenRouter](https://openrouter.ai) — switch models mid-conversation; each message records which model wrote it
+- Streaming chat with any model on [OpenRouter](https://openrouter.ai) — text, vision, and image generation; switch models mid-conversation; each message records which model wrote it
 - Durable, resumable streams: refresh, reconnect, or restart the server without losing tokens
 - Anonymous guest sessions to try it instantly; sign up with email, GitHub, or Google and your guest chats come with you
 - Credit-based billing: $2.00 free on signup, Stripe top-ups from $5 to $100 with a transparent 10% fee, and a free $0.50 drip after a month at zero

@@ -2083,3 +2083,127 @@ textarea {
     display: none;
   }
 }
+
+/* ----- tour: manual syntax highlighting ----- */
+
+:root {
+  --code-kw: #a21caf;
+  --code-type: #0e7490;
+  --code-attr: #b45309;
+  --code-fn: #4f46e5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --code-kw: #e879f9;
+    --code-type: #5eead4;
+    --code-attr: #fbbf24;
+    --code-fn: #a5b4fc;
+  }
+}
+
+.tour-code .tk-kw {
+  color: var(--code-kw);
+}
+
+.tour-code .tk-type {
+  color: var(--code-type);
+}
+
+.tour-code .tk-attr {
+  color: var(--code-attr);
+}
+
+.tour-code .tk-fn {
+  color: var(--code-fn);
+}
+
+/* ----- tour: stream layout diagram ----- */
+
+.tour-streams-diagram {
+  margin: 0 0 28px;
+}
+
+.ts-name {
+  fill: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+}
+
+.ts-lane {
+  fill: var(--panel);
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+
+.ts-cell {
+  stroke: none;
+}
+
+.ts-cell-a {
+  fill: var(--accent);
+  opacity: 0.55;
+}
+
+.ts-cell-b {
+  fill: #0e8f7e;
+}
+
+.ts-cell-c {
+  fill: #d99113;
+  opacity: 0.65;
+}
+
+.ts-cell-read {
+  stroke: var(--text-1);
+  stroke-width: 2;
+}
+
+.ts-dim {
+  opacity: 0.28;
+}
+
+.ts-resume {
+  stroke: #27865a;
+  stroke-width: 2;
+  stroke-dasharray: 3 4;
+}
+
+/* ----- tour: screenshots ----- */
+
+.tour-shot {
+  margin: 26px 0 0;
+}
+
+.tour-shot img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  box-shadow: 0 18px 50px -22px rgba(20, 18, 60, 0.35);
+}
+
+.tour-shot figcaption {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-2);
+  text-align: center;
+}
+
+.tour-shot figcaption a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 550;
+}
+
+.tour-foot .tour-shot-app {
+  max-width: 860px;
+  margin: 0 auto 56px;
+}
+
+.tour-foot-lede {
+  margin: 0 0 24px;
+  color: var(--text-2);
+  font-size: 15px;
+}
