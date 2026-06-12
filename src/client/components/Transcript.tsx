@@ -89,10 +89,13 @@ function MessageView({
   }
 
   const streaming = message.status === "streaming";
-  // Image generation sends no token stream to watch — OpenRouter only
-  // keep-alives until the finished image arrives — so show an explicit
-  // placeholder instead of a bare caret.
-  const generatingImage = streaming && makesImages && !message.images?.length;
+  // There is no explicit "image coming" signal on the wire — the image
+  // simply arrives in a late delta. But generation is distinguishable by
+  // silence: an image render produces no tokens, while a text answer
+  // streams immediately. So the placeholder shows only while an
+  // image-capable model has produced nothing at all.
+  const generatingImage =
+    streaming && makesImages && !message.text && !message.images?.length;
 
   return (
     <article
