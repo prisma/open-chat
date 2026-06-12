@@ -19,6 +19,9 @@
 
 import { join } from "node:path";
 import { brotliCompressSync } from "node:zlib";
+// Bundler-emitted asset; the import resolves to its hashed file path. Served
+// under a stable URL because og:image links live in tweets we can't re-edit.
+import ogTourPath from "../client/assets/og-tour.png";
 
 const CONTENT_TYPES: Record<string, string> = {
   js: "text/javascript;charset=utf-8",
@@ -97,16 +100,43 @@ export async function builtClientRoutes(): Promise<Record<
       });
   }
 
-  // Catch-all: the app shell. Served fresh (it's tiny) so a new deploy's
-  // hashed asset URLs are picked up immediately.
-  const html = await Bun.file(join(dir, "client/index.html")).bytes();
-  routes["/*"] = () =>
-    new Response(html, {
+  // The OG card image, on a stable URL (the hashed asset route above also
+  // exists, but link previews shouldn't break when the hash changes).
+  const ogTour = new Uint8Array(await Bun.file(ogTourPath).arrayBuffer());
+  routes["/og-tour.png"] = () =>
+    new Response(ogTour, {
       headers: {
-        "Content-Type": "text/html;charset=utf-8",
-        "Cache-Control": "no-cache",
+        "Content-Type": "image/png",
+        "Cache-Control": "public, max-age=86400",
       },
     });
+
+  // Catch-all: the app shell. Served fresh (it's tiny) so a new deploy's
+  // hashed asset URLs are picked up immediately. /tour gets its own
+  // title/description so shared links unfurl as the tour, not the app.
+  const html = await Bun.file(join(dir, "client/index.html")).text();
+  const tourHtml = html
+    .replace(
+      "<title>Open Chat</title>",
+      "<title>Open Chat — the guided tour</title>",
+    )
+    .replace(
+      'content="Open Chat — durable, open-source AI chat"',
+      'content="Open Chat — the guided tour"',
+    )
+    .replace(
+      /property="og:description"\s+content="[^"]*"/,
+      'property="og:description" content="How a prompt becomes a durable, replayable stream: an animated walkthrough of Prisma Streams, Prisma Postgres, Prisma Next, Prisma Compute, and TanStack DB working together."',
+    );
+  const htmlHeaders = {
+    "Content-Type": "text/html;charset=utf-8",
+    "Cache-Control": "no-cache",
+  };
+  routes["/*"] = (req) =>
+    new Response(
+      new URL(req.url).pathname === "/tour" ? tourHtml : html,
+      { headers: htmlHeaders },
+    );
 
   return routes;
 }
