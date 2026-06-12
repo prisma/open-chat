@@ -542,6 +542,14 @@ export function TourPage() {
           />
           <Reveal>
             <StreamLayoutDiagram />
+            <p className="tour-caption">
+              Key-filtered reads stay fast as the log grows — Streams keeps a
+              tiered routing-key index on the side, without ever touching the
+              single-log write path:{" "}
+              <DocLink href="https://github.com/prisma/streams/blob/main/docs/tiered-index.md">
+                docs/tiered-index.md
+              </DocLink>
+            </p>
           </Reveal>
           <Reveal>
             <pre className="tour-code">
