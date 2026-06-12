@@ -5,6 +5,7 @@
 // objects under content/); in local development it falls back to a
 // directory on disk so the app stays fully local.
 import { join } from "node:path";
+import { db } from "../prisma/db";
 
 const TYPE_BY_EXT: Record<string, string> = {
   png: "image/png",
@@ -42,8 +43,8 @@ export function parseDataUrl(dataUrl: string) {
   return { ext: ext!, bytes: Buffer.from(base64!, "base64") };
 }
 
-/** Stores an image data URL and returns its content id. */
-export async function storeContent(dataUrl: string) {
+/** Stores an image data URL for a user and returns its content id. */
+export async function storeContent(dataUrl: string, userId: string) {
   const { ext, bytes } = parseDataUrl(dataUrl);
   const id = `${crypto.randomUUID()}.${ext}`;
   if (r2) {
@@ -53,7 +54,18 @@ export async function storeContent(dataUrl: string) {
   } else {
     await Bun.write(join(LOCAL_DIR, id), bytes);
   }
+  await db.orm.Content.create({ id, userId, createdAt: new Date() });
   return id;
+}
+
+/**
+ * Whether a user may read a content object. Objects stored before
+ * ownership tracking have no row and stay readable by any signed-in
+ * session — their ids are unguessable UUIDs.
+ */
+export async function contentReadableBy(id: string, userId: string) {
+  const row = await db.orm.Content.where({ id }).first();
+  return !row || row.userId === userId;
 }
 
 /**

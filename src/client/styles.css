@@ -1643,3 +1643,31 @@ textarea {
   max-height: 92vh;
   border-radius: var(--radius-md);
 }
+
+.image-placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 280px;
+  height: 196px;
+  margin: 4px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-3);
+  font-size: 12.5px;
+  background: linear-gradient(
+    100deg,
+    var(--surface-2) 40%,
+    var(--surface-3) 50%,
+    var(--surface-2) 60%
+  );
+  background-size: 200% 100%;
+  animation: image-shimmer 1.6s linear infinite;
+}
+
+@keyframes image-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}

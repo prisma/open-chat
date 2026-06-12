@@ -16,6 +16,10 @@
       "model": "Chat",
       "namespace": "public"
     },
+    "content": {
+      "model": "Content",
+      "namespace": "public"
+    },
     "credit_grant": {
       "model": "CreditGrant",
       "namespace": "public"
@@ -360,6 +364,63 @@
               },
               "namespaceId": "public",
               "table": "chat"
+            }
+          },
+          "Content": {
+            "fields": {
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "userId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "user": {
+                "cardinality": "N:1",
+                "on": {
+                  "localFields": [
+                    "userId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "userId": {
+                  "column": "userId"
+                }
+              },
+              "namespaceId": "public",
+              "table": "content"
             }
           },
           "CreditGrant": {
@@ -798,6 +859,21 @@
                   "namespace": "public"
                 }
               },
+              "contents": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "userId"
+                  ]
+                },
+                "to": {
+                  "model": "Content",
+                  "namespace": "public"
+                }
+              },
               "creditGrants": {
                 "cardinality": "1:N",
                 "on": {
@@ -1209,6 +1285,63 @@
               },
               "uniques": []
             },
+            "content": {
+              "columns": {
+                "createdAt": {
+                  "codecId": "pg/timestamptz@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "userId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "constraint": true,
+                  "index": true,
+                  "onDelete": "cascade",
+                  "source": {
+                    "columns": [
+                      "userId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "content"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "user"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "userId"
+                  ]
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": []
+            },
             "credit_grant": {
               "columns": {
                 "createdAt": {
@@ -1593,7 +1726,7 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "sha256:ab544d725c8b235f68d31af21bfc79c9ddd51a2d86d53d1fadb67f714f67d744"
+    "storageHash": "sha256:e00aea4159fc5e91026d6d02b9ed5d1f01f78d1a49b40107e7625bb3a0966647"
   },
   "execution": {
     "executionHash": "sha256:aabbf67d9b0bb0e8c1f6efc6898fe9e47aac6dbdcaf13aa7658bcd0259a6803a",

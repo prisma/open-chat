@@ -43,6 +43,12 @@ async function migrateGuestData(anonymousUserId: string, newUserId: string) {
     }
     await db.orm.Chat.where({ id: chat.id }).update({ userId: newUserId });
   }
+
+  // Stored images follow their owner, so /api/content keeps serving them
+  // after the guest becomes an account.
+  await db.orm.Content.where({ userId: anonymousUserId }).update({
+    userId: newUserId,
+  });
 }
 
 export const auth = betterAuth({

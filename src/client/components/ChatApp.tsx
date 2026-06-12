@@ -314,6 +314,7 @@ export function AuthenticatedChatApp({
           messages={messages}
           selectedChat={selectedChat}
           targetMessageId={ui.targetMessageId}
+          models={modelsData}
         />
         <Composer
           selectedChat={selectedChat}

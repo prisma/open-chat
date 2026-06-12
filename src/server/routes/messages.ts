@@ -202,7 +202,7 @@ export async function sendMessage(request: Request, chatId: string) {
   // thumbnail enter the event log.
   const attachments = await Promise.all(
     (input.images ?? []).map(async (image) => ({
-      id: await storeContent(image.full),
+      id: await storeContent(image.full, user.id),
       thumb: image.thumb,
     })),
   );
@@ -289,7 +289,7 @@ export async function sendMessage(request: Request, chatId: string) {
           // the content store, thumbnail it for the event log (Bun.Image,
           // when the runtime has it), and log the reference.
           const [id, thumb] = await Promise.all([
-            storeContent(image),
+            storeContent(image, user.id),
             thumbnailFromDataUrl(image),
           ]);
           await appendMessageEvent(

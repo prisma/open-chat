@@ -19,8 +19,22 @@ model User {
   // only supports list back-references.
   billing       Billing[]
   creditGrants  CreditGrant[]
+  contents      Content[]
 
   @@map("user")
+}
+
+// Ownership of stored content (full-resolution images in R2), so the
+// /api/content proxy can restrict each object to the user whose chat it
+// belongs to. Rows move with the user on guest -> account migration.
+model Content {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("content")
 }
 
 model Session {

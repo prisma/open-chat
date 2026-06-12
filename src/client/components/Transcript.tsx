@@ -2,13 +2,14 @@
 // pinned to the bottom while tokens arrive, with message permalinks
 // (scroll-to + highlight flash) and the durable-offset checkmark per
 // completed message.
-import { AlertCircle, Check, Copy } from "lucide-react";
+import { AlertCircle, Check, Copy, Image } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "@tanstack/react-db";
 import type {
   ChatDto,
   ChatMessage,
   MessageImage,
+  ModelDto,
 } from "../../shared/contracts";
 import { messagePermalink } from "../actions";
 import { checkpointsCollection, updateUi } from "../db";
@@ -46,11 +47,13 @@ function MessageView({
   message,
   offsetLabel,
   highlighted,
+  makesImages,
   onZoom,
 }: {
   message: ChatMessage;
   offsetLabel: string | undefined;
   highlighted: boolean;
+  makesImages: boolean;
   onZoom: (image: string) => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -86,6 +89,10 @@ function MessageView({
   }
 
   const streaming = message.status === "streaming";
+  // Image generation sends no token stream to watch — OpenRouter only
+  // keep-alives until the finished image arrives — so show an explicit
+  // placeholder instead of a bare caret.
+  const generatingImage = streaming && makesImages && !message.images?.length;
 
   return (
     <article
@@ -97,10 +104,16 @@ function MessageView({
         aria-hidden
       />
       <div className="msg-col">
-        {message.text || streaming ? (
+        {message.text || (streaming && !generatingImage) ? (
           <div className="msg-text">
             <MessageMarkdown text={message.text} streaming={streaming} />
             {streaming ? <span className="caret" aria-hidden /> : null}
+          </div>
+        ) : null}
+        {generatingImage ? (
+          <div className="image-placeholder" role="status">
+            <Image size={16} aria-hidden />
+            <span>Generating image…</span>
           </div>
         ) : null}
         <MessageImages images={message.images} onZoom={onZoom} />
@@ -147,10 +160,12 @@ export function Transcript({
   messages,
   selectedChat,
   targetMessageId,
+  models,
 }: {
   messages: Array<ChatMessage>;
   selectedChat: ChatDto | undefined;
   targetMessageId: string | undefined;
+  models: Array<ModelDto>;
 }) {
   const { data: checkpoints } = useLiveQuery(checkpointsCollection);
   const listRef = useRef<HTMLElement | null>(null);
@@ -232,6 +247,11 @@ export function Transcript({
             message={message}
             offsetLabel={offsetLabel}
             highlighted={message.id === targetMessageId}
+            makesImages={Boolean(
+              models
+                .find((model) => model.id === message.model)
+                ?.outputModalities.includes("image"),
+            )}
             onZoom={setZoomedImage}
             key={message.id}
           />
