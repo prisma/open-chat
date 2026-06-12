@@ -21,8 +21,12 @@ export type UiState = {
   composerText: string;
   chatSearch: string;
   modelSearch: string;
+  /** Capability filter in the model picker. */
+  modelFilter: "all" | "vision" | "image-out";
   selectedModel: string;
   modelPickerOpen: boolean;
+  /** Pending attachments (data URLs) for the next message. */
+  composerImages: Array<string>;
   sidebarOpen: boolean;
   authMode: "sign-in" | "sign-up";
   showAuthScreen: boolean;
@@ -108,8 +112,10 @@ const initialUiState: UiState = {
   composerText: "",
   chatSearch: "",
   modelSearch: "",
+  modelFilter: "all",
   selectedModel: "openai/gpt-4.1-mini",
   modelPickerOpen: false,
+  composerImages: [],
   sidebarOpen: false,
   authMode: "sign-in",
   showAuthScreen: false,

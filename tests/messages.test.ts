@@ -144,4 +144,50 @@ describe("message materialization", () => {
       error: "Model failed",
     });
   });
+  test("carries images through the event log", () => {
+    const messages = materializeMessages([
+      event({
+        type: "message.created",
+        chatId: "chat_1",
+        messageId: "msg_user",
+        role: "user",
+        text: "What is this?",
+        images: ["data:image/png;base64,AAA"],
+      }),
+      event({
+        type: "message.created",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        text: "",
+      }),
+      event({
+        type: "message.image",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        image: "data:image/png;base64,BBB",
+      }),
+      event({
+        type: "message.delta",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        text: "Here you go.",
+      }),
+      event({
+        type: "message.completed",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+      }),
+    ]);
+
+    expect(messages[0]?.images).toEqual(["data:image/png;base64,AAA"]);
+    expect(messages[1]).toMatchObject({
+      status: "completed",
+      text: "Here you go.",
+      images: ["data:image/png;base64,BBB"],
+    });
+  });
 });

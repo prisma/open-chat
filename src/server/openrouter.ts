@@ -1,5 +1,4 @@
 import { OpenRouter } from "@openrouter/sdk";
-import type { ChatMessages } from "@openrouter/sdk/models";
 import { requireOpenRouterApiKey, env } from "./env";
 
 let openRouter: OpenRouter | undefined;
@@ -30,17 +29,20 @@ export async function listOpenRouterModels() {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-type ModelPricing = { prompt: number; completion: number };
+type ModelMeta = {
+  pricing: { prompt: number; completion: number };
+  outputsImages: boolean;
+};
 
-let pricingCache:
-  | { fetchedAt: number; byModel: Map<string, ModelPricing> }
+let metaCache:
+  | { fetchedAt: number; byModel: Map<string, ModelMeta> }
   | undefined;
 
-export async function getModelPricing(modelId: string) {
+async function getModelMeta(modelId: string) {
   const maxAgeMs = 60 * 60 * 1000;
-  if (!pricingCache || Date.now() - pricingCache.fetchedAt > maxAgeMs) {
+  if (!metaCache || Date.now() - metaCache.fetchedAt > maxAgeMs) {
     const models = await listOpenRouterModels();
-    pricingCache = {
+    metaCache = {
       fetchedAt: Date.now(),
       byModel: new Map(
         models.map((model) => {
@@ -51,8 +53,11 @@ export async function getModelPricing(modelId: string) {
           return [
             model.id,
             {
-              prompt: Number(pricing.prompt ?? 0) || 0,
-              completion: Number(pricing.completion ?? 0) || 0,
+              pricing: {
+                prompt: Number(pricing.prompt ?? 0) || 0,
+                completion: Number(pricing.completion ?? 0) || 0,
+              },
+              outputsImages: model.outputModalities.includes("image"),
             },
           ];
         }),
@@ -60,26 +65,135 @@ export async function getModelPricing(modelId: string) {
     };
   }
 
-  return pricingCache.byModel.get(modelId);
+  return metaCache.byModel.get(modelId);
 }
 
-export async function streamChatCompletion(input: {
+export async function getModelPricing(modelId: string) {
+  return (await getModelMeta(modelId))?.pricing;
+}
+
+export async function modelOutputsImages(modelId: string) {
+  return (await getModelMeta(modelId).catch(() => undefined))?.outputsImages ?? false;
+}
+
+// Wire-shaped chat messages: content is either plain text or a list of
+// text / image_url parts (data: URLs supported).
+export type WireContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
+export type WireMessage = {
+  role: "user" | "assistant";
+  content: string | Array<WireContentPart>;
+};
+
+export type StreamDelta = {
+  text?: string;
+  images?: Array<string>;
+  finishReason?: string | null;
+  usage?: {
+    promptTokens?: number | undefined;
+    completionTokens?: number | undefined;
+    cost?: number | null | undefined;
+  };
+};
+
+// Streams a chat completion straight off OpenRouter's wire API. The
+// official SDK validates streaming chunks against a schema that drops the
+// `images` field image-generation models return, so this parses the SSE
+// feed itself — it's ~40 lines and shows the actual protocol.
+export async function* streamChatCompletion(input: {
   model: string;
-  messages: Array<ChatMessages>;
+  messages: Array<WireMessage>;
   userId: string;
-  chatId: string;
-}) {
-  return getOpenRouter().chat.send({
-    chatRequest: {
-      model: input.model,
-      messages: input.messages,
-      stream: true,
-      streamOptions: {
-        includeUsage: true,
+  imageOutput?: boolean;
+}): AsyncGenerator<StreamDelta> {
+  const response = await fetch(
+    "https://openrouter.ai/api/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${requireOpenRouterApiKey()}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": env.OPENROUTER_SITE_URL,
+        "X-Title": env.OPENROUTER_APP_NAME,
       },
-      user: input.userId,
-      sessionId: input.chatId,
+      body: JSON.stringify({
+        model: input.model,
+        messages: input.messages,
+        stream: true,
+        stream_options: { include_usage: true },
+        user: input.userId,
+        // Image-generation models only produce images when asked to.
+        ...(input.imageOutput ? { modalities: ["image", "text"] } : {}),
+      }),
     },
-  });
+  );
+
+  if (!response.ok || !response.body) {
+    const text = await response.text().catch(() => "");
+    let message = `OpenRouter request failed: ${response.status}`;
+    try {
+      message = JSON.parse(text).error.message ?? message;
+    } catch {
+      // keep the status-code message
+    }
+    throw new Error(message);
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for await (const chunk of response.body) {
+    buffer += decoder.decode(chunk, { stream: true });
+
+    let newline: number;
+    while ((newline = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (!line.startsWith("data: ")) continue; // SSE comments, blank lines
+      const payload = line.slice(6);
+      if (payload === "[DONE]") return;
+
+      const parsed = JSON.parse(payload) as {
+        error?: { message?: string };
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          cost?: number | null;
+        };
+        choices?: Array<{
+          finish_reason?: string | null;
+          delta?: {
+            content?: string | null;
+            images?: Array<{ image_url?: { url?: string } }>;
+          };
+        }>;
+      };
+      if (parsed.error) {
+        throw new Error(parsed.error.message ?? "Model call failed");
+      }
+
+      const choice = parsed.choices?.[0];
+      const images = (choice?.delta?.images ?? [])
+        .map((image) => image.image_url?.url ?? "")
+        .filter(Boolean);
+      yield {
+        ...(choice?.delta?.content ? { text: choice.delta.content } : {}),
+        ...(images.length ? { images } : {}),
+        ...(choice?.finish_reason != null
+          ? { finishReason: choice.finish_reason }
+          : {}),
+        ...(parsed.usage
+          ? {
+              usage: {
+                promptTokens: parsed.usage.prompt_tokens,
+                completionTokens: parsed.usage.completion_tokens,
+                cost: parsed.usage.cost,
+              },
+            }
+          : {}),
+      };
+    }
+  }
 }
 

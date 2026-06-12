@@ -27,6 +27,7 @@ export function applyMessageEvent(
       messages.set(event.messageId, {
         ...base,
         text: event.text,
+        images: event.images,
         status: event.role === "assistant" ? "streaming" : "completed",
       });
       return;
@@ -36,6 +37,17 @@ export function applyMessageEvent(
         ...base,
         role: "assistant",
         text: `${existing?.text ?? ""}${event.text}`,
+        images: existing?.images,
+        status: "streaming",
+      });
+      return;
+    }
+    case "message.image": {
+      messages.set(event.messageId, {
+        ...base,
+        role: "assistant",
+        text: existing?.text ?? "",
+        images: [...(existing?.images ?? []), event.image],
         status: "streaming",
       });
       return;
@@ -46,6 +58,7 @@ export function applyMessageEvent(
         ...base,
         role: "assistant",
         text: existing?.text ?? "",
+        images: existing?.images,
         status: "completed",
         usage: usage.success ? usage.data : undefined,
       });
@@ -56,6 +69,7 @@ export function applyMessageEvent(
         ...base,
         role: "assistant",
         text: existing?.text ?? "",
+        images: existing?.images,
         status: "error",
         error: event.error,
       });

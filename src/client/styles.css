@@ -1037,7 +1037,7 @@ textarea {
   position: absolute;
   left: 8px;
   bottom: calc(100% + 8px);
-  width: 300px;
+  width: 460px;
   max-width: calc(100vw - 60px);
   background: var(--panel);
   border: 1px solid var(--border-strong);
@@ -1069,7 +1069,7 @@ textarea {
 }
 
 .model-list {
-  max-height: 300px;
+  max-height: 380px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -1516,4 +1516,130 @@ textarea {
   .stats-totals {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---------- Images: attachments, message images, lightbox ---------- */
+
+.model-filters {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.filter-chip {
+  font-size: 12px;
+  color: var(--text-2);
+  padding: 3px 10px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  transition: background 0.12s var(--ease), color 0.12s var(--ease);
+}
+
+.filter-chip:hover {
+  background: var(--surface-2);
+}
+
+.filter-chip.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.model-badges {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+  margin-right: 8px;
+  color: var(--text-3);
+}
+
+.model-badge {
+  display: inline-flex;
+  align-items: center;
+}
+
+.composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 0;
+}
+
+.composer-attachments .attachment {
+  position: relative;
+  display: inline-flex;
+}
+
+.composer-attachments img {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.composer-attachments .attachment button {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-1);
+  color: var(--bg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.attachment-warning {
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.attach-button:disabled {
+  opacity: 0.4;
+}
+
+.msg-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.msg-images button {
+  display: block;
+  line-height: 0;
+}
+
+.msg-images img {
+  max-width: min(320px, 100%);
+  max-height: 320px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+
+.msg.user .msg-images {
+  justify-content: flex-end;
+}
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-out;
+}
+
+.lightbox img {
+  max-width: min(92vw, 1400px);
+  max-height: 92vh;
+  border-radius: var(--radius-md);
 }

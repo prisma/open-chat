@@ -12,14 +12,41 @@ import { copyToClipboard, cx, formatTime, modelShortName } from "../format";
 import { MessageMarkdown } from "../markdown";
 import { LogoMark } from "./LogoMark";
 
+// Images in a message (user attachments or model output); click to zoom.
+function MessageImages({
+  images,
+  onZoom,
+}: {
+  images: Array<string> | undefined;
+  onZoom: (image: string) => void;
+}) {
+  if (!images?.length) return null;
+  return (
+    <div className="msg-images">
+      {images.map((image, index) => (
+        <button
+          type="button"
+          key={index}
+          aria-label="View image full size"
+          onClick={() => onZoom(image)}
+        >
+          <img src={image} alt="" loading="lazy" />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function MessageView({
   message,
   offsetLabel,
   highlighted,
+  onZoom,
 }: {
   message: ChatMessage;
   offsetLabel: string | undefined;
   highlighted: boolean;
+  onZoom: (image: string) => void;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -45,7 +72,8 @@ function MessageView({
     return (
       <article className={cx("msg user", highlighted && "flash")} id={message.id}>
         <div className="msg-col">
-          <div className="bubble">{message.text}</div>
+          <MessageImages images={message.images} onZoom={onZoom} />
+          {message.text ? <div className="bubble">{message.text}</div> : null}
           <div className="msg-meta">{timeLink}</div>
         </div>
       </article>
@@ -70,6 +98,7 @@ function MessageView({
             {streaming ? <span className="caret" aria-hidden /> : null}
           </div>
         ) : null}
+        <MessageImages images={message.images} onZoom={onZoom} />
         {message.status === "error" ? (
           <div className="msg-error" role="alert">
             <AlertCircle size={14} aria-hidden />
@@ -122,6 +151,7 @@ export function Transcript({
   const listRef = useRef<HTMLElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const shouldStickRef = useRef(true);
+  const [zoomedImage, setZoomedImage] = useState<string | undefined>();
 
   const offsetLabel = selectedChat
     ? checkpoints.find((checkpoint) => checkpoint.chatId === selectedChat.id)
@@ -197,11 +227,22 @@ export function Transcript({
             message={message}
             offsetLabel={offsetLabel}
             highlighted={message.id === targetMessageId}
+            onZoom={setZoomedImage}
             key={message.id}
           />
         ))}
         <div ref={endRef} />
       </div>
+      {zoomedImage ? (
+        <button
+          type="button"
+          className="lightbox"
+          aria-label="Close image"
+          onClick={() => setZoomedImage(undefined)}
+        >
+          <img src={zoomedImage} alt="" />
+        </button>
+      ) : null}
     </section>
   );
 }

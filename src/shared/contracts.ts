@@ -23,10 +23,23 @@ export const modelDtoSchema = z.object({
 
 export type ModelDto = z.infer<typeof modelDtoSchema>;
 
-export const sendMessageSchema = z.object({
-  text: z.string().trim().min(1).max(24_000),
-  model: z.string().trim().min(1).optional(),
-});
+// Images travel inside the event log as data URLs, so a replayed chat is
+// fully self-contained. The client downscales before sending; this cap is
+// the server-side backstop (~2 MB of binary per image).
+export const imageDataUrlSchema = z
+  .string()
+  .regex(/^data:image\/(png|jpeg|webp|gif);base64,/)
+  .max(2_800_000);
+
+export const sendMessageSchema = z
+  .object({
+    text: z.string().trim().max(24_000),
+    model: z.string().trim().min(1).optional(),
+    images: z.array(imageDataUrlSchema).max(4).optional(),
+  })
+  .refine((input) => input.text.length > 0 || (input.images?.length ?? 0) > 0, {
+    message: "A message needs text or at least one image",
+  });
 
 export const createChatSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
@@ -51,11 +64,19 @@ export const messageEventSchema = z.discriminatedUnion("type", [
     type: z.literal("message.created"),
     role: z.enum(["user", "assistant"]),
     text: z.string(),
+    images: z.array(z.string()).optional(),
   }),
   eventBaseSchema.extend({
     type: z.literal("message.delta"),
     role: z.literal("assistant"),
     text: z.string(),
+  }),
+  // A generated image, appended as its own event when the model emits one
+  // mid-stream — durable like every text delta.
+  eventBaseSchema.extend({
+    type: z.literal("message.image"),
+    role: z.literal("assistant"),
+    image: z.string(),
   }),
   eventBaseSchema.extend({
     type: z.literal("message.completed"),
@@ -118,6 +139,7 @@ export type ChatMessage = {
   chatId: string;
   role: "user" | "assistant";
   text: string;
+  images?: Array<string> | undefined;
   status: "streaming" | "completed" | "error";
   model?: string | undefined;
   error?: string | undefined;

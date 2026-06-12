@@ -9,6 +9,14 @@
       "autoPort": false
     },
     {
+      "name": "open-chat-alt",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["--hot", "src/server/index.ts"],
+      "port": 3210,
+      "env": { "PORT": "3210", "APP_ORIGIN": "http://localhost:3210" },
+      "autoPort": false
+    },
+    {
       "name": "open-chat-prod-sim",
       "runtimeExecutable": "bun",
       "runtimeArgs": ["dist/server/start.js"],

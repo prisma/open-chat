@@ -3,7 +3,6 @@
 // sendMessage appends every event durably to Prisma Streams before and while
 // the model streams; streamEvents proxies that same log over SSE, so the UI
 // can resume from any offset after a refresh, reconnect, or server restart.
-import type { ChatMessages } from "@openrouter/sdk/models";
 import {
   sendMessageSchema,
   type MessageEvent,
@@ -18,7 +17,12 @@ import {
   requireUser,
   sseEncode,
 } from "../http";
-import { streamChatCompletion } from "../openrouter";
+import {
+  modelOutputsImages,
+  streamChatCompletion,
+  type WireContentPart,
+  type WireMessage,
+} from "../openrouter";
 import {
   appendMessageEvent,
   loadAllMessageEvents,
@@ -123,12 +127,29 @@ export async function streamEvents(request: Request, chatId: string) {
 
 function toOpenRouterMessages(events: Array<MessageEvent>) {
   return materializeMessages(events)
-    .filter((message) => message.status === "completed" && message.text.trim())
+    .filter(
+      (message) =>
+        message.status === "completed" &&
+        (message.text.trim() || message.images?.length),
+    )
     .slice(-30)
-    .map((message) => ({
-      role: message.role,
-      content: message.text,
-    })) satisfies Array<ChatMessages>;
+    .map((message): WireMessage => {
+      // User attachments go along as image_url parts so vision models keep
+      // seeing them in follow-ups. Generated assistant images stay out of
+      // the context — models reject image parts in assistant turns.
+      const images = message.role === "user" ? (message.images ?? []) : [];
+      if (!images.length) {
+        return { role: message.role, content: message.text };
+      }
+      const parts: Array<WireContentPart> = images.map((image) => ({
+        type: "image_url",
+        image_url: { url: image },
+      }));
+      if (message.text.trim()) {
+        parts.unshift({ type: "text", text: message.text });
+      }
+      return { role: message.role, content: parts };
+    });
 }
 
 export async function sendMessage(request: Request, chatId: string) {
@@ -155,6 +176,7 @@ export async function sendMessage(request: Request, chatId: string) {
       messageId: userMessageId,
       role: "user",
       text: input.text,
+      ...(input.images?.length ? { images: input.images } : {}),
       model,
     }),
   );
@@ -173,7 +195,9 @@ export async function sendMessage(request: Request, chatId: string) {
   );
 
   const renamedTitle =
-    chat.title === "New chat" ? createChatTitle(input.text) : chat.title;
+    chat.title === "New chat"
+      ? createChatTitle(input.text || "Image message")
+      : chat.title;
   await db.orm.Chat.where({ id: chat.id }).update({
     title: renamedTitle,
     model,
@@ -185,36 +209,27 @@ export async function sendMessage(request: Request, chatId: string) {
 
   void (async () => {
     try {
-      const stream = await streamChatCompletion({
+      const stream = streamChatCompletion({
         model,
         messages,
         userId: user.id,
-        chatId: chat.id,
+        imageOutput: await modelOutputsImages(model),
       });
 
       let finishReason: string | null = null;
       let usage:
         | {
-            inputTokens?: number | undefined;
-            outputTokens?: number | undefined;
             promptTokens?: number | undefined;
             completionTokens?: number | undefined;
             cost?: number | null | undefined;
           }
         | undefined;
 
-      for await (const chunk of stream) {
-        if (chunk.error) {
-          throw new Error(chunk.error.message);
-        }
+      for await (const delta of stream) {
+        if (delta.usage) usage = delta.usage;
+        finishReason = delta.finishReason ?? finishReason;
 
-        if (chunk.usage) usage = chunk.usage;
-
-        for (const choice of chunk.choices) {
-          finishReason = choice.finishReason ?? finishReason;
-          const text = choice.delta.content ?? "";
-          if (!text) continue;
-
+        if (delta.text) {
           await appendMessageEvent(
             user.id,
             chat.id,
@@ -223,7 +238,22 @@ export async function sendMessage(request: Request, chatId: string) {
               chatId: chat.id,
               messageId: assistantMessageId,
               role: "assistant",
-              text,
+              text: delta.text,
+              model,
+            }),
+          );
+        }
+
+        for (const image of delta.images ?? []) {
+          await appendMessageEvent(
+            user.id,
+            chat.id,
+            newEvent({
+              type: "message.image",
+              chatId: chat.id,
+              messageId: assistantMessageId,
+              role: "assistant",
+              image,
               model,
             }),
           );
