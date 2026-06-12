@@ -36,6 +36,7 @@ import {
   initialsOf,
 } from "../format";
 import { stopChatStream } from "../stream";
+import { GitHubMark } from "./GitHubMark";
 import { LogoMark } from "./LogoMark";
 
 function TopupPanel() {
@@ -289,6 +290,16 @@ export function Sidebar({
           </span>
           Open Chat
         </div>
+        <a
+          className="icon-button github-link"
+          href="https://github.com/prisma/open-chat"
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Source on GitHub"
+          title="Source on GitHub"
+        >
+          <GitHubMark size={15} />
+        </a>
         <button
           className="icon-button"
           type="button"

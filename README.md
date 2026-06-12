@@ -5,7 +5,7 @@
 # Open Chat
 
 > [!TIP]
-> **Try it live at [oss.chat](https://oss.chat)** — no sign-up required, you get a guest budget and can start chatting right away.
+> **Try it live at [oss.chat](https://oss.chat)** — no sign-up required, you get a guest budget and can start chatting right away. Then take the **[guided tour](https://oss.chat/tour)**: a scroll-through of how the whole system works, from prompt to durable stream.
 
 A local-first, multi-model AI chat app — and a working demonstration of how [Prisma Streams](https://github.com/prisma/streams), [Prisma Postgres](https://www.prisma.io/postgres), and Prisma Next fit together in a real application.
 
@@ -160,6 +160,7 @@ That's it — the CLI builds locally, uploads, and the deployment is live in sec
 
 ## Learn more
 
+- [oss.chat/tour](https://oss.chat/tour) — the guided tour: an animated walk through the whole flow, one section per piece of the stack
 - [`docs/architecture.md`](docs/architecture.md) — the stream-per-user / routing-key-per-chat pattern, data ownership, and the durable streaming path
 - [`docs/features.md`](docs/features.md) — every user flow, written as a verification checklist
 - [`prisma-next.md`](prisma-next.md) — how the Prisma Next contract workflow operates in this repo
