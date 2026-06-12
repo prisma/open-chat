@@ -27,6 +27,7 @@ import {
   type WireMessage,
 } from "../openrouter";
 import { wavFromPcm16 } from "../audio";
+import { waitUntil } from "../compute";
 import { storeContent } from "../content";
 import { thumbnailFromDataUrl } from "../images";
 import {
@@ -299,7 +300,10 @@ export async function sendMessage(request: Request, chatId: string) {
     hearsAudio: capabilities.hearsAudio,
   });
 
-  void (async () => {
+  // The generation runs past this request's lifetime; without a sleep
+  // guard, Compute suspends the instance ~5s after the response and the
+  // model stream freezes mid-answer.
+  const generation = (async () => {
     try {
       const stream = streamChatCompletion({
         model,
@@ -498,7 +502,10 @@ export async function sendMessage(request: Request, chatId: string) {
         console.error("Voice note transcription failed", error);
       }
     }
-  })();
+  })().catch((error) => {
+    console.error("Generation task failed", error);
+  });
+  waitUntil(generation);
 
   return json({
     userMessageId,
