@@ -25,6 +25,16 @@ const CONTENT_TYPES: Record<string, string> = {
   css: "text/css;charset=utf-8",
 };
 
+// Images the client imports (e.g. the /tour screenshots) are emitted next
+// to the bundle too, but unlike js/css they are already compressed — serve
+// the bytes as-is.
+const IMAGE_TYPES: Record<string, string> = {
+  webp: "image/webp",
+  png: "image/png",
+  jpg: "image/jpeg",
+  svg: "image/svg+xml",
+};
+
 async function optimize(path: string): Promise<Uint8Array<ArrayBuffer>> {
   try {
     const result = await Bun.build({
@@ -73,6 +83,18 @@ export async function builtClientRoutes(): Promise<Record<
         });
       return new Response(body, { headers });
     };
+  }
+
+  for (const name of new Bun.Glob("*.{webp,png,jpg,svg}").scanSync(dir)) {
+    const bytes = new Uint8Array(await Bun.file(join(dir, name)).arrayBuffer());
+    const contentType = IMAGE_TYPES[name.split(".").at(-1)!];
+    routes[`/${name}`] = () =>
+      new Response(bytes, {
+        headers: {
+          "Content-Type": contentType ?? "application/octet-stream",
+          "Cache-Control": "public, max-age=31536000, immutable",
+        },
+      });
   }
 
   // Catch-all: the app shell. Served fresh (it's tiny) so a new deploy's
