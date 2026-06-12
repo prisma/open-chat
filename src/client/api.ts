@@ -49,7 +49,7 @@ export const api = {
       requestJson<{ messages: Array<ChatMessage>; offset: string }>(
         `/api/chats/${encodeURIComponent(chatId)}/history`,
       ),
-    send: (chatId: string, input: { text: string; model?: string; images?: Array<string> }) =>
+    send: (chatId: string, input: { text: string; model?: string; images?: Array<{ full: string; thumb: string }> }) =>
       requestJson<{ userMessageId: string; assistantMessageId: string }>(
         `/api/chats/${encodeURIComponent(chatId)}/messages`,
         {

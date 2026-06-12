@@ -23,6 +23,7 @@ import {
   type WireContentPart,
   type WireMessage,
 } from "../openrouter";
+import { storeContent } from "../content";
 import {
   appendMessageEvent,
   loadAllMessageEvents,
@@ -135,9 +136,12 @@ function toOpenRouterMessages(events: Array<MessageEvent>) {
     .slice(-30)
     .map((message): WireMessage => {
       // User attachments go along as image_url parts so vision models keep
-      // seeing them in follow-ups. Generated assistant images stay out of
-      // the context — models reject image parts in assistant turns.
-      const images = message.role === "user" ? (message.images ?? []) : [];
+      // seeing them in follow-ups — the inline thumbnail is plenty for
+      // context. Generated assistant images stay out — models reject image
+      // parts in assistant turns.
+      const images = (message.role === "user" ? (message.images ?? []) : [])
+        .map((image) => (typeof image === "string" ? image : image.thumb))
+        .filter((url): url is string => Boolean(url));
       if (!images.length) {
         return { role: message.role, content: message.text };
       }
@@ -167,6 +171,15 @@ export async function sendMessage(request: Request, chatId: string) {
   const userMessageId = `msg_${crypto.randomUUID()}`;
   const assistantMessageId = `msg_${crypto.randomUUID()}`;
 
+  // Originals go to the content store; only the id and the small inline
+  // thumbnail enter the event log.
+  const attachments = await Promise.all(
+    (input.images ?? []).map(async (image) => ({
+      id: await storeContent(image.full),
+      thumb: image.thumb,
+    })),
+  );
+
   await appendMessageEvent(
     user.id,
     chat.id,
@@ -176,7 +189,7 @@ export async function sendMessage(request: Request, chatId: string) {
       messageId: userMessageId,
       role: "user",
       text: input.text,
-      ...(input.images?.length ? { images: input.images } : {}),
+      ...(attachments.length ? { images: attachments } : {}),
       model,
     }),
   );
@@ -245,6 +258,10 @@ export async function sendMessage(request: Request, chatId: string) {
         }
 
         for (const image of delta.images ?? []) {
+          // Generated images land here as data URLs; park the original in
+          // the content store and log the reference. (No inline thumbnail:
+          // the server has no image resizer, so the client loads these
+          // through the /api/content proxy.)
           await appendMessageEvent(
             user.id,
             chat.id,
@@ -253,7 +270,7 @@ export async function sendMessage(request: Request, chatId: string) {
               chatId: chat.id,
               messageId: assistantMessageId,
               role: "assistant",
-              image,
+              image: { id: await storeContent(image) },
               model,
             }),
           );

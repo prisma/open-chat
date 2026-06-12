@@ -25,8 +25,8 @@ export type UiState = {
   modelFilter: "all" | "vision" | "image-out";
   selectedModel: string;
   modelPickerOpen: boolean;
-  /** Pending attachments (data URLs) for the next message. */
-  composerImages: Array<string>;
+  /** Pending attachments for the next message. */
+  composerImages: Array<{ full: string; thumb: string }>;
   sidebarOpen: boolean;
   authMode: "sign-in" | "sign-up";
   showAuthScreen: boolean;

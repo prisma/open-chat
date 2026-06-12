@@ -24,7 +24,7 @@ import {
   usageCollection,
 } from "../db";
 import { modelShortName } from "../format";
-import { imageFileToDataUrl } from "../images";
+import { prepareImage } from "../images";
 
 const MAX_ATTACHMENTS = 4;
 
@@ -211,11 +211,11 @@ export function Composer({
   async function attachFiles(files: Iterable<File>) {
     for (const file of files) {
       if (!file.type.startsWith("image/")) continue;
-      const dataUrl = await imageFileToDataUrl(file).catch(() => undefined);
-      if (!dataUrl) continue;
+      const prepared = await prepareImage(file).catch(() => undefined);
+      if (!prepared) continue;
       updateUi((state) => {
         if (state.composerImages.length >= MAX_ATTACHMENTS) return;
-        state.composerImages = [...state.composerImages, dataUrl];
+        state.composerImages = [...state.composerImages, prepared];
       });
     }
   }
@@ -281,7 +281,7 @@ export function Composer({
           <div className="composer-attachments">
             {ui.composerImages.map((image, index) => (
               <span className="attachment" key={index}>
-                <img src={image} alt={`Attachment ${index + 1}`} />
+                <img src={image.thumb} alt={`Attachment ${index + 1}`} />
                 <button
                   type="button"
                   aria-label="Remove attachment"

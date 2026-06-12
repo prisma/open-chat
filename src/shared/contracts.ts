@@ -23,19 +23,40 @@ export const modelDtoSchema = z.object({
 
 export type ModelDto = z.infer<typeof modelDtoSchema>;
 
-// Images travel inside the event log as data URLs, so a replayed chat is
-// fully self-contained. The client downscales before sending; this cap is
-// the server-side backstop (~2 MB of binary per image).
-export const imageDataUrlSchema = z
+// Images are stored in two tiers: a small thumbnail travels inline in the
+// event log (so replay stays cheap), while the full-resolution original
+// lives in the content store (R2 in production) and is served back through
+// GET /api/content/:id.
+export const contentIdSchema = z
   .string()
-  .regex(/^data:image\/(png|jpeg|webp|gif);base64,/)
-  .max(2_800_000);
+  .regex(/^[0-9a-f-]{36}\.(png|jpeg|webp|gif)$/);
+
+// An image as it appears in events and messages. Plain strings are inline
+// data URLs — how the earliest events stored images; still rendered.
+export const messageImageSchema = z.union([
+  z.string(),
+  z.object({
+    id: contentIdSchema,
+    thumb: z.string().optional(),
+  }),
+]);
+
+export type MessageImage = z.infer<typeof messageImageSchema>;
+
+const dataUrlPattern = /^data:image\/(png|jpeg|webp|gif);base64,/;
+
+// What the client uploads per attachment: the original (capped client-side
+// at 2560px) and the inline thumbnail (512px). Caps here are backstops.
+const attachmentSchema = z.object({
+  full: z.string().regex(dataUrlPattern).max(9_000_000),
+  thumb: z.string().regex(dataUrlPattern).max(400_000),
+});
 
 export const sendMessageSchema = z
   .object({
     text: z.string().trim().max(24_000),
     model: z.string().trim().min(1).optional(),
-    images: z.array(imageDataUrlSchema).max(4).optional(),
+    images: z.array(attachmentSchema).max(4).optional(),
   })
   .refine((input) => input.text.length > 0 || (input.images?.length ?? 0) > 0, {
     message: "A message needs text or at least one image",
@@ -64,7 +85,7 @@ export const messageEventSchema = z.discriminatedUnion("type", [
     type: z.literal("message.created"),
     role: z.enum(["user", "assistant"]),
     text: z.string(),
-    images: z.array(z.string()).optional(),
+    images: z.array(messageImageSchema).optional(),
   }),
   eventBaseSchema.extend({
     type: z.literal("message.delta"),
@@ -76,7 +97,7 @@ export const messageEventSchema = z.discriminatedUnion("type", [
   eventBaseSchema.extend({
     type: z.literal("message.image"),
     role: z.literal("assistant"),
-    image: z.string(),
+    image: messageImageSchema,
   }),
   eventBaseSchema.extend({
     type: z.literal("message.completed"),
@@ -139,7 +160,7 @@ export type ChatMessage = {
   chatId: string;
   role: "user" | "assistant";
   text: string;
-  images?: Array<string> | undefined;
+  images?: Array<MessageImage> | undefined;
   status: "streaming" | "completed" | "error";
   model?: string | undefined;
   error?: string | undefined;

@@ -17,6 +17,7 @@ import {
   stripeWebhook,
 } from "./routes/billing";
 import { listChats, updateChat } from "./routes/chats";
+import { getContent } from "./routes/content";
 import { getMessages, sendMessage, streamEvents } from "./routes/messages";
 import { getStats } from "./routes/stats";
 
@@ -36,6 +37,9 @@ async function handleApi(request: Request) {
   if (url.pathname === "/api/billing/checkout") return createCheckout(request);
   if (url.pathname === "/api/billing/confirm") return confirmCheckout(request);
   if (url.pathname === "/api/billing/webhook") return stripeWebhook(request);
+
+  const contentId = getPathId(url.pathname, "/api/content/");
+  if (contentId) return getContent(request, contentId);
 
   const messageChatId = getPathId(url.pathname, "/api/chats/", "/messages");
   if (messageChatId) return sendMessage(request, messageChatId);

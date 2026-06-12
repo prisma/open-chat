@@ -5,10 +5,15 @@
 import { AlertCircle, Check, Copy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "@tanstack/react-db";
-import type { ChatDto, ChatMessage } from "../../shared/contracts";
+import type {
+  ChatDto,
+  ChatMessage,
+  MessageImage,
+} from "../../shared/contracts";
 import { messagePermalink } from "../actions";
 import { checkpointsCollection, updateUi } from "../db";
 import { copyToClipboard, cx, formatTime, modelShortName } from "../format";
+import { imageFullSrc, imageThumbSrc } from "../images";
 import { MessageMarkdown } from "../markdown";
 import { LogoMark } from "./LogoMark";
 
@@ -17,7 +22,7 @@ function MessageImages({
   images,
   onZoom,
 }: {
-  images: Array<string> | undefined;
+  images: Array<MessageImage> | undefined;
   onZoom: (image: string) => void;
 }) {
   if (!images?.length) return null;
@@ -28,9 +33,9 @@ function MessageImages({
           type="button"
           key={index}
           aria-label="View image full size"
-          onClick={() => onZoom(image)}
+          onClick={() => onZoom(imageFullSrc(image))}
         >
-          <img src={image} alt="" loading="lazy" />
+          <img src={imageThumbSrc(image)} alt="" loading="lazy" />
         </button>
       ))}
     </div>

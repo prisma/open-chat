@@ -13,3 +13,4 @@ output/
 .prisma-dev/
 *.log
 .prisma/
+var/
