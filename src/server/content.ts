@@ -12,6 +12,8 @@ const TYPE_BY_EXT: Record<string, string> = {
   jpeg: "image/jpeg",
   webp: "image/webp",
   gif: "image/gif",
+  wav: "audio/wav",
+  mp3: "audio/mpeg",
 };
 
 const LOCAL_DIR = join(process.cwd(), "var/content");
@@ -37,10 +39,14 @@ function r2Client() {
 const r2 = r2Client();
 
 export function parseDataUrl(dataUrl: string) {
-  const match = /^data:image\/(png|jpeg|webp|gif);base64,(.+)$/s.exec(dataUrl);
-  if (!match) throw new Error("Unsupported image data URL");
-  const [, ext, base64] = match;
-  return { ext: ext!, bytes: Buffer.from(base64!, "base64") };
+  const match =
+    /^data:(?:image\/(png|jpeg|webp|gif)|audio\/(wav|mpeg|mp3));base64,(.+)$/s.exec(
+      dataUrl,
+    );
+  if (!match) throw new Error("Unsupported data URL");
+  const [, imageExt, audioExt, base64] = match;
+  const ext = imageExt ?? (audioExt === "mpeg" ? "mp3" : audioExt!);
+  return { ext, bytes: Buffer.from(base64!, "base64") };
 }
 
 /** Stores an image data URL for a user and returns its content id. */

@@ -5,18 +5,24 @@
 import {
   AlertCircle,
   ArrowUp,
+  AudioLines,
   Check,
   ChevronDown,
   Eye,
   Image,
   ImagePlus,
+  Mic,
   Search,
+  Square,
+  Volume2,
   X,
 } from "lucide-react";
-import { type FormEvent, useEffect, useMemo, useRef } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatDto, ModelDto } from "../../shared/contracts";
-import { createChat } from "../actions";
+import { createChat, reportClientError } from "../actions";
 import { api } from "../api";
+import { attachFiles } from "../attachments";
+import { startDictation, type Dictation } from "../audio";
 import {
   chatsCollection,
   type UiState,
@@ -24,7 +30,6 @@ import {
   usageCollection,
 } from "../db";
 import { modelShortName } from "../format";
-import { prepareImage } from "../images";
 
 const MAX_ATTACHMENTS = 4;
 
@@ -36,10 +41,20 @@ function modelMakesImages(model: ModelDto) {
   return model.outputModalities.includes("image");
 }
 
+function modelHearsAudio(model: ModelDto) {
+  return model.inputModalities.includes("audio");
+}
+
+function modelSpeaks(model: ModelDto) {
+  return model.outputModalities.includes("audio");
+}
+
 const CAPABILITY_FILTERS = [
   { key: "all", label: "All" },
   { key: "vision", label: "Vision" },
-  { key: "image-out", label: "Image output" },
+  { key: "image-out", label: "Image out" },
+  { key: "audio-in", label: "Audio in" },
+  { key: "audio-out", label: "Audio out" },
 ] as const;
 
 function ModelPopover({
@@ -56,17 +71,22 @@ function ModelPopover({
     const query = ui.modelSearch.trim().toLowerCase();
     return models
       .filter((model) => {
-        // Everything that can chat: text in, and text or images out.
+        // Everything that can chat: text in, and text/image/audio out.
         const usable =
           model.inputModalities.includes("text") &&
           (model.outputModalities.includes("text") ||
-            model.outputModalities.includes("image"));
+            model.outputModalities.includes("image") ||
+            model.outputModalities.includes("audio"));
         const capability =
           ui.modelFilter === "vision"
             ? modelSeesImages(model)
             : ui.modelFilter === "image-out"
               ? modelMakesImages(model)
-              : true;
+              : ui.modelFilter === "audio-in"
+                ? modelHearsAudio(model)
+                : ui.modelFilter === "audio-out"
+                  ? modelSpeaks(model)
+                  : true;
         const matches =
           !query ||
           model.id.toLowerCase().includes(query) ||
@@ -166,6 +186,16 @@ function ModelPopover({
                     <Image size={12} />
                   </span>
                 ) : null}
+                {modelHearsAudio(model) ? (
+                  <span className="model-badge" title="Understands audio">
+                    <Mic size={12} />
+                  </span>
+                ) : null}
+                {modelSpeaks(model) ? (
+                  <span className="model-badge" title="Speaks replies">
+                    <Volume2 size={12} />
+                  </span>
+                ) : null}
               </span>
               {model.id === ui.selectedModel ? (
                 <Check className="selected-check" size={14} aria-hidden />
@@ -195,6 +225,8 @@ export function Composer({
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const dictationRef = useRef<Dictation | null>(null);
+  const [recording, setRecording] = useState(false);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -207,16 +239,30 @@ export function Composer({
   const blindModel = Boolean(
     ui.composerImages.length && selectedModel && !modelSeesImages(selectedModel),
   );
+  const deafModel = Boolean(
+    ui.composerAudio && selectedModel && !modelHearsAudio(selectedModel),
+  );
 
-  async function attachFiles(files: Iterable<File>) {
-    for (const file of files) {
-      if (!file.type.startsWith("image/")) continue;
-      const prepared = await prepareImage(file).catch(() => undefined);
-      if (!prepared) continue;
-      updateUi((state) => {
-        if (state.composerImages.length >= MAX_ATTACHMENTS) return;
-        state.composerImages = [...state.composerImages, prepared];
-      });
+  async function toggleDictation() {
+    if (dictationRef.current) {
+      const dictation = dictationRef.current;
+      dictationRef.current = null;
+      setRecording(false);
+      try {
+        const note = await dictation.stop();
+        updateUi((state) => {
+          state.composerAudio = note;
+        });
+      } catch (error) {
+        reportClientError(error);
+      }
+      return;
+    }
+    try {
+      dictationRef.current = await startDictation();
+      setRecording(true);
+    } catch (error) {
+      reportClientError(error);
     }
   }
 
@@ -224,7 +270,8 @@ export function Composer({
     event.preventDefault();
     const text = ui.composerText.trim();
     const images = ui.composerImages;
-    if (!text && !images.length) return;
+    const audio = ui.composerAudio;
+    if (!text && !images.length && !audio) return;
 
     try {
       let chat = selectedChat;
@@ -235,6 +282,7 @@ export function Composer({
       updateUi((state) => {
         state.composerText = "";
         state.composerImages = [];
+        state.composerAudio = undefined;
         state.streamStatus = "connecting";
         state.sendError = undefined;
       });
@@ -242,6 +290,7 @@ export function Composer({
         text,
         model: ui.selectedModel,
         ...(images.length ? { images } : {}),
+        ...(audio ? { audio: audio.dataUrl } : {}),
       });
       void chatsCollection.utils.refetch();
     } catch (error) {
@@ -277,7 +326,7 @@ export function Composer({
       ) : null}
       <form className="composer" onSubmit={submit}>
         {ui.modelPickerOpen ? <ModelPopover models={models} ui={ui} /> : null}
-        {ui.composerImages.length ? (
+        {ui.composerImages.length || ui.composerAudio ? (
           <div className="composer-attachments">
             {ui.composerImages.map((image, index) => (
               <span className="attachment" key={index}>
@@ -297,10 +346,33 @@ export function Composer({
                 </button>
               </span>
             ))}
+            {ui.composerAudio ? (
+              <span className="attachment audio-chip">
+                <AudioLines size={13} aria-hidden />
+                {Math.round(ui.composerAudio.durationMs / 1000)}s
+                <button
+                  type="button"
+                  aria-label="Remove audio"
+                  onClick={() =>
+                    updateUi((state) => {
+                      state.composerAudio = undefined;
+                    })
+                  }
+                >
+                  <X size={11} aria-hidden />
+                </button>
+              </span>
+            ) : null}
             {blindModel ? (
               <span className="attachment-warning">
                 {modelShortName(ui.selectedModel)} can't see images — pick a
                 vision model
+              </span>
+            ) : null}
+            {deafModel ? (
+              <span className="attachment-warning">
+                {modelShortName(ui.selectedModel)} can't hear audio — pick an
+                audio-in model
               </span>
             ) : null}
           </div>
@@ -349,7 +421,7 @@ export function Composer({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,audio/*"
             multiple
             hidden
             onChange={(event) => {
@@ -367,10 +439,23 @@ export function Composer({
             <ImagePlus size={15} aria-hidden />
           </button>
           <button
+            className={recording ? "icon-button mic-button recording" : "icon-button mic-button"}
+            type="button"
+            aria-label={recording ? "Stop dictation" : "Dictate a voice note"}
+            aria-pressed={recording}
+            onClick={() => void toggleDictation()}
+          >
+            {recording ? <Square size={13} aria-hidden /> : <Mic size={15} aria-hidden />}
+          </button>
+          <button
             className="send-button"
             type="submit"
             aria-label="Send message"
-            disabled={!ui.composerText.trim() && !ui.composerImages.length}
+            disabled={
+              !ui.composerText.trim() &&
+              !ui.composerImages.length &&
+              !ui.composerAudio
+            }
           >
             <ArrowUp size={16} aria-hidden />
           </button>

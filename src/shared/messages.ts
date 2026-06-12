@@ -28,6 +28,7 @@ export function applyMessageEvent(
         ...base,
         text: event.text,
         images: event.images,
+        audio: event.audio,
         status: event.role === "assistant" ? "streaming" : "completed",
       });
       return;
@@ -38,7 +39,34 @@ export function applyMessageEvent(
         role: "assistant",
         text: `${existing?.text ?? ""}${event.text}`,
         images: existing?.images,
+        audio: existing?.audio,
+        audioLive: existing?.audioLive,
         status: "streaming",
+      });
+      return;
+    }
+    // Chunk payloads are not kept on the message — live playback consumes
+    // them straight off the SSE feed; replay uses the stored WAV instead.
+    case "message.audio.delta": {
+      messages.set(event.messageId, {
+        ...base,
+        role: "assistant",
+        text: existing?.text ?? "",
+        images: existing?.images,
+        audio: existing?.audio,
+        audioLive: true,
+        status: "streaming",
+      });
+      return;
+    }
+    case "message.audio": {
+      messages.set(event.messageId, {
+        ...base,
+        role: "assistant",
+        text: existing?.text ?? "",
+        images: existing?.images,
+        audio: event.audio,
+        status: existing?.status ?? "streaming",
       });
       return;
     }
@@ -48,6 +76,8 @@ export function applyMessageEvent(
         role: "assistant",
         text: existing?.text ?? "",
         images: [...(existing?.images ?? []), event.image],
+        audio: existing?.audio,
+        audioLive: existing?.audioLive,
         status: "streaming",
       });
       return;
@@ -59,6 +89,7 @@ export function applyMessageEvent(
         role: "assistant",
         text: existing?.text ?? "",
         images: existing?.images,
+        audio: existing?.audio,
         status: "completed",
         usage: usage.success ? usage.data : undefined,
       });
@@ -70,6 +101,7 @@ export function applyMessageEvent(
         role: "assistant",
         text: existing?.text ?? "",
         images: existing?.images,
+        audio: existing?.audio,
         status: "error",
         error: event.error,
       });

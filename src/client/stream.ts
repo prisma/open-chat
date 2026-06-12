@@ -7,6 +7,7 @@ import type {
   StreamCheckpoint,
 } from "../shared/contracts";
 import { applyMessageEvent } from "../shared/messages";
+import { enqueueLiveAudio, stopLiveAudio } from "./audio";
 import {
   messagesCollection,
   updateUi,
@@ -19,6 +20,12 @@ let source: EventSource | undefined;
 let activeChatId = "";
 
 function materializeEvent(event: DurableMessageEvent) {
+  // Spoken audio plays as it arrives; the chunk itself never enters the
+  // message state (replay uses the stored WAV referenced by message.audio).
+  if (event.type === "message.audio.delta") {
+    enqueueLiveAudio(event.messageId, event.audio);
+  }
+
   const current = messagesCollection.get(event.messageId);
   const map = new Map(current ? [[current.id, current]] : []);
   applyMessageEvent(map, event);
@@ -32,6 +39,7 @@ function materializeEvent(event: DurableMessageEvent) {
 }
 
 export function stopChatStream() {
+  stopLiveAudio();
   const current = source;
   source = undefined;
   activeChatId = "";

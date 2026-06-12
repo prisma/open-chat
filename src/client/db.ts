@@ -22,11 +22,13 @@ export type UiState = {
   chatSearch: string;
   modelSearch: string;
   /** Capability filter in the model picker. */
-  modelFilter: "all" | "vision" | "image-out";
+  modelFilter: "all" | "vision" | "image-out" | "audio-in" | "audio-out";
   selectedModel: string;
   modelPickerOpen: boolean;
   /** Pending attachments for the next message. */
   composerImages: Array<{ full: string; thumb: string }>;
+  /** Pending voice note / audio file (one per message). */
+  composerAudio?: { dataUrl: string; durationMs: number } | undefined;
   sidebarOpen: boolean;
   authMode: "sign-in" | "sign-up";
   showAuthScreen: boolean;
@@ -199,5 +201,7 @@ export function resetClientState() {
     state.editingChatId = undefined;
     state.editingTitle = "";
     state.targetMessageId = undefined;
+    state.composerImages = [];
+    state.composerAudio = undefined;
   });
 }

@@ -30,6 +30,7 @@ import { stopChatStream } from "../stream";
 import { Composer } from "./Composer";
 import { Sidebar } from "./Sidebar";
 import { Transcript } from "./Transcript";
+import { attachFiles } from "../attachments";
 
 function ChatCost({ messages }: { messages: Array<ChatMessage> }) {
   const [open, setOpen] = useState(false);
@@ -255,8 +256,33 @@ export function AuthenticatedChatApp({
   const showStreamPill =
     ui.streamStatus === "error" || ui.streamStatus === "connecting";
 
+  const [dropping, setDropping] = useState(false);
+
   return (
-    <main className="app-shell">
+    <main
+      className="app-shell"
+      onDragOver={(event) => {
+        if (![...event.dataTransfer.items].some((i) => i.kind === "file")) {
+          return;
+        }
+        event.preventDefault();
+        setDropping(true);
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+        setDropping(false);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDropping(false);
+        void attachFiles(event.dataTransfer.files);
+      }}
+    >
+      {dropping ? (
+        <div className="drop-overlay" aria-hidden>
+          Drop images or audio to attach
+        </div>
+      ) : null}
       <Sidebar
         chats={chats}
         ui={ui}

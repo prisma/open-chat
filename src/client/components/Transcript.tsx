@@ -2,7 +2,7 @@
 // pinned to the bottom while tokens arrive, with message permalinks
 // (scroll-to + highlight flash) and the durable-offset checkmark per
 // completed message.
-import { AlertCircle, Check, Copy, Image } from "lucide-react";
+import { AlertCircle, AudioLines, Check, Copy, Image } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "@tanstack/react-db";
 import type {
@@ -17,6 +17,23 @@ import { copyToClipboard, cx, formatTime, modelShortName } from "../format";
 import { imageFullSrc, imageThumbSrc } from "../images";
 import { MessageMarkdown } from "../markdown";
 import { LogoMark } from "./LogoMark";
+
+// A stored voice note or spoken reply, played through the content proxy.
+function MessageAudioPlayer({
+  audio,
+}: {
+  audio: { id: string } | undefined;
+}) {
+  if (!audio) return null;
+  return (
+    <audio
+      className="msg-audio"
+      controls
+      preload="none"
+      src={`/api/content/${audio.id}`}
+    />
+  );
+}
 
 // Images in a message (user attachments or model output); click to zoom.
 function MessageImages({
@@ -81,6 +98,7 @@ function MessageView({
       <article className={cx("msg user", highlighted && "flash")} id={message.id}>
         <div className="msg-col">
           <MessageImages images={message.images} onZoom={onZoom} />
+          <MessageAudioPlayer audio={message.audio} />
           {message.text ? <div className="bubble">{message.text}</div> : null}
           <div className="msg-meta">{timeLink}</div>
         </div>
@@ -119,7 +137,14 @@ function MessageView({
             <span>Generating image…</span>
           </div>
         ) : null}
+        {streaming && message.audioLive && !message.audio ? (
+          <div className="audio-live" role="status">
+            <AudioLines size={14} aria-hidden />
+            <span>Speaking…</span>
+          </div>
+        ) : null}
         <MessageImages images={message.images} onZoom={onZoom} />
+        <MessageAudioPlayer audio={message.audio} />
         {message.status === "error" ? (
           <div className="msg-error" role="alert">
             <AlertCircle size={14} aria-hidden />

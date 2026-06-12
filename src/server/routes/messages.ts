@@ -21,11 +21,13 @@ import {
   sseEncode,
 } from "../http";
 import {
+  modelOutputsAudio,
   modelOutputsImages,
   streamChatCompletion,
   type WireContentPart,
   type WireMessage,
 } from "../openrouter";
+import { wavFromPcm16 } from "../audio";
 import { storeContent } from "../content";
 import { thumbnailFromDataUrl } from "../images";
 import {
@@ -153,13 +155,17 @@ export async function streamEvents(request: Request, chatId: string) {
   });
 }
 
-function toOpenRouterMessages(events: Array<MessageEvent>) {
-  return materializeMessages(events)
-    .filter(
-      (message) =>
-        message.status === "completed" &&
-        (message.text.trim() || message.images?.length),
-    )
+function toOpenRouterMessages(
+  events: Array<MessageEvent>,
+  currentAudio?: { data: string; format: "wav" | "mp3" },
+) {
+  const eligible = materializeMessages(events).filter(
+    (message) =>
+      message.status === "completed" &&
+      (message.text.trim() || message.images?.length || message.audio),
+  );
+  const lastUserId = eligible.findLast((m) => m.role === "user")?.id;
+  return eligible
     .slice(-30)
     .map((message): WireMessage => {
       // User attachments go along as image_url parts so vision models keep
@@ -169,13 +175,26 @@ function toOpenRouterMessages(events: Array<MessageEvent>) {
       const images = (message.role === "user" ? (message.images ?? []) : [])
         .map((image) => (typeof image === "string" ? image : image.thumb))
         .filter((url): url is string => Boolean(url));
-      if (!images.length) {
-        return { role: message.role, content: message.text };
+      // Only the current turn's audio is uploaded to the model; earlier
+      // voice notes would re-send megabytes per turn, so they degrade to a
+      // marker the model can still see in context.
+      const audio =
+        message.id === lastUserId ? currentAudio : undefined;
+      const audioMarker =
+        message.audio && message.id !== lastUserId ? "[voice message]" : "";
+      if (!images.length && !audio) {
+        return {
+          role: message.role,
+          content: [message.text, audioMarker].filter(Boolean).join(" "),
+        };
       }
       const parts: Array<WireContentPart> = images.map((image) => ({
         type: "image_url",
         image_url: { url: image },
       }));
+      if (audio) {
+        parts.push({ type: "input_audio", input_audio: audio });
+      }
       if (message.text.trim()) {
         parts.unshift({ type: "text", text: message.text });
       }
@@ -206,6 +225,17 @@ export async function sendMessage(request: Request, chatId: string) {
       thumb: image.thumb,
     })),
   );
+  const audioNote = input.audio
+    ? { id: await storeContent(input.audio, user.id) }
+    : undefined;
+  const wireAudio = input.audio
+    ? {
+        data: input.audio.slice(input.audio.indexOf(",") + 1),
+        format: (input.audio.startsWith("data:audio/wav") ? "wav" : "mp3") as
+          | "wav"
+          | "mp3",
+      }
+    : undefined;
 
   await appendMessageEvent(
     user.id,
@@ -217,6 +247,7 @@ export async function sendMessage(request: Request, chatId: string) {
       role: "user",
       text: input.text,
       ...(attachments.length ? { images: attachments } : {}),
+      ...(audioNote ? { audio: audioNote } : {}),
       model,
     }),
   );
@@ -236,7 +267,7 @@ export async function sendMessage(request: Request, chatId: string) {
 
   const renamedTitle =
     chat.title === "New chat"
-      ? createChatTitle(input.text || "Image message")
+      ? createChatTitle(input.text || (input.audio ? "Voice message" : "Image message"))
       : chat.title;
   await db.orm.Chat.where({ id: chat.id }).update({
     title: renamedTitle,
@@ -245,7 +276,7 @@ export async function sendMessage(request: Request, chatId: string) {
   });
 
   const { events } = await loadAllMessageEvents(user.id, chat.id);
-  const messages = toOpenRouterMessages(events);
+  const messages = toOpenRouterMessages(events, wireAudio);
 
   void (async () => {
     try {
@@ -254,7 +285,15 @@ export async function sendMessage(request: Request, chatId: string) {
         messages,
         userId: user.id,
         imageOutput: await modelOutputsImages(model),
+        audioOutput: await modelOutputsAudio(model),
       });
+
+      // Spoken audio: chunks are appended as events for live playback and
+      // collected here; the completed answer is assembled into a WAV in
+      // the content store, which replay uses instead of the chunks.
+      const pcmChunks: Array<Buffer> = [];
+      let pcmBytes = 0;
+      const PCM_EVENT_LIMIT = 12 * 1024 * 1024;
 
       let finishReason: string | null = null;
       let usage:
@@ -269,7 +308,10 @@ export async function sendMessage(request: Request, chatId: string) {
         if (delta.usage) usage = delta.usage;
         finishReason = delta.finishReason ?? finishReason;
 
-        if (delta.text) {
+        // Audio models speak their answer; the transcript fragments are
+        // the message text and stream like ordinary deltas.
+        const text = delta.text ?? delta.audioTranscript;
+        if (text) {
           await appendMessageEvent(
             user.id,
             chat.id,
@@ -278,10 +320,30 @@ export async function sendMessage(request: Request, chatId: string) {
               chatId: chat.id,
               messageId: assistantMessageId,
               role: "assistant",
-              text: delta.text,
+              text,
               model,
             }),
           );
+        }
+
+        if (delta.audioChunk) {
+          const chunk = Buffer.from(delta.audioChunk, "base64");
+          pcmChunks.push(chunk);
+          pcmBytes += chunk.length;
+          if (pcmBytes <= PCM_EVENT_LIMIT) {
+            await appendMessageEvent(
+              user.id,
+              chat.id,
+              newEvent({
+                type: "message.audio.delta",
+                chatId: chat.id,
+                messageId: assistantMessageId,
+                role: "assistant",
+                audio: delta.audioChunk,
+                model,
+              }),
+            );
+          }
         }
 
         for (const image of delta.images ?? []) {
@@ -305,6 +367,23 @@ export async function sendMessage(request: Request, chatId: string) {
             }),
           );
         }
+      }
+
+      if (pcmChunks.length) {
+        const wav = wavFromPcm16(Buffer.concat(pcmChunks));
+        const dataUrl = `data:audio/wav;base64,${Buffer.from(wav).toString("base64")}`;
+        await appendMessageEvent(
+          user.id,
+          chat.id,
+          newEvent({
+            type: "message.audio",
+            chatId: chat.id,
+            messageId: assistantMessageId,
+            role: "assistant",
+            audio: { id: await storeContent(dataUrl, user.id) },
+            model,
+          }),
+        );
       }
 
       const usageSummary = await summarizeUsage(model, usage);

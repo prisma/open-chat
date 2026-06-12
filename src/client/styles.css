@@ -2236,3 +2236,68 @@ textarea {
   color: var(--text-2);
   font-size: 15px;
 }
+
+/* ---------- Audio ---------- */
+
+.audio-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 26px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.mic-button.recording {
+  color: var(--danger);
+  background: var(--danger-bg);
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes mic-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.msg-audio {
+  display: block;
+  margin: 4px 0;
+  height: 36px;
+  max-width: 360px;
+}
+
+.audio-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  margin: 4px 0;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12.5px;
+  animation: mic-pulse 1.4s ease-in-out infinite;
+}
+
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-lg);
+  margin: 10px;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 600;
+  pointer-events: none;
+}

@@ -32,6 +32,7 @@ export async function listOpenRouterModels() {
 type ModelMeta = {
   pricing: { prompt: number; completion: number };
   outputsImages: boolean;
+  outputsAudio: boolean;
 };
 
 let metaCache:
@@ -58,6 +59,7 @@ async function getModelMeta(modelId: string) {
                 completion: Number(pricing.completion ?? 0) || 0,
               },
               outputsImages: model.outputModalities.includes("image"),
+              outputsAudio: model.outputModalities.includes("audio"),
             },
           ];
         }),
@@ -76,11 +78,16 @@ export async function modelOutputsImages(modelId: string) {
   return (await getModelMeta(modelId).catch(() => undefined))?.outputsImages ?? false;
 }
 
+export async function modelOutputsAudio(modelId: string) {
+  return (await getModelMeta(modelId).catch(() => undefined))?.outputsAudio ?? false;
+}
+
 // Wire-shaped chat messages: content is either plain text or a list of
 // text / image_url parts (data: URLs supported).
 export type WireContentPart =
   | { type: "text"; text: string }
-  | { type: "image_url"; image_url: { url: string } };
+  | { type: "image_url"; image_url: { url: string } }
+  | { type: "input_audio"; input_audio: { data: string; format: "wav" | "mp3" } };
 
 export type WireMessage = {
   role: "user" | "assistant";
@@ -90,6 +97,10 @@ export type WireMessage = {
 export type StreamDelta = {
   text?: string;
   images?: Array<string>;
+  /** Base64 PCM16 chunk of spoken audio. */
+  audioChunk?: string;
+  /** Transcript fragment of the spoken audio. */
+  audioTranscript?: string;
   finishReason?: string | null;
   usage?: {
     promptTokens?: number | undefined;
@@ -114,6 +125,7 @@ export async function* streamChatCompletion(input: {
   messages: Array<WireMessage>;
   userId: string;
   imageOutput?: boolean;
+  audioOutput?: boolean;
 }): AsyncGenerator<StreamDelta> {
   const watchdog = new AbortController();
   const totalTimer = setTimeout(
@@ -142,8 +154,15 @@ export async function* streamChatCompletion(input: {
           stream: true,
           stream_options: { include_usage: true },
           user: input.userId,
-          // Image-generation models only produce images when asked to.
+          // Image/audio models only produce those modalities when asked.
           ...(input.imageOutput ? { modalities: ["image", "text"] } : {}),
+          // Streamed speech arrives as raw PCM16 chunks.
+          ...(input.audioOutput
+            ? {
+                modalities: ["text", "audio"],
+                audio: { voice: "alloy", format: "pcm16" },
+              }
+            : {}),
         }),
         signal: watchdog.signal,
       },
@@ -190,6 +209,7 @@ export async function* streamChatCompletion(input: {
           delta?: {
             content?: string | null;
             images?: Array<{ image_url?: { url?: string } }>;
+            audio?: { data?: string; transcript?: string };
           };
         }>;
       };
@@ -204,6 +224,12 @@ export async function* streamChatCompletion(input: {
       yield {
         ...(choice?.delta?.content ? { text: choice.delta.content } : {}),
         ...(images.length ? { images } : {}),
+        ...(choice?.delta?.audio?.data
+          ? { audioChunk: choice.delta.audio.data }
+          : {}),
+        ...(choice?.delta?.audio?.transcript
+          ? { audioTranscript: choice.delta.audio.transcript }
+          : {}),
         ...(choice?.finish_reason != null
           ? { finishReason: choice.finish_reason }
           : {}),
