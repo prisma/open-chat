@@ -8,7 +8,10 @@ import {
   type MessageEvent,
   type MessageEventInput,
 } from "../../shared/contracts";
-import { materializeMessages } from "../../shared/messages";
+import {
+  materializeMessages,
+  stalledMessages,
+} from "../../shared/messages";
 import { db } from "../../prisma/db";
 import {
   assertMethod,
@@ -24,6 +27,7 @@ import {
   type WireMessage,
 } from "../openrouter";
 import { storeContent } from "../content";
+import { thumbnailFromDataUrl } from "../images";
 import {
   appendMessageEvent,
   loadAllMessageEvents,
@@ -57,7 +61,30 @@ export async function getMessages(request: Request, chatId: string) {
   const user = await requireUser(request);
   await requireOwnedChat(user.id, chatId);
 
-  const { events, offset } = await loadAllMessageEvents(user.id, chatId);
+  let { events, offset } = await loadAllMessageEvents(user.id, chatId);
+
+  // Repair generations that died with their server (deploy, crash) before
+  // appending a terminal event — otherwise the chat replays as eternally
+  // "streaming". The repair is itself an event, so it heals durably.
+  const stalled = stalledMessages(materializeMessages(events), Date.now());
+  if (stalled.length) {
+    for (const message of stalled) {
+      await appendMessageEvent(
+        user.id,
+        chatId,
+        newEvent({
+          type: "message.error",
+          chatId,
+          messageId: message.id,
+          role: "assistant",
+          ...(message.model ? { model: message.model } : {}),
+          error: "The model stream was interrupted.",
+        }),
+      );
+    }
+    ({ events, offset } = await loadAllMessageEvents(user.id, chatId));
+  }
+
   return json({ messages: materializeMessages(events), offset });
 }
 
@@ -259,9 +286,12 @@ export async function sendMessage(request: Request, chatId: string) {
 
         for (const image of delta.images ?? []) {
           // Generated images land here as data URLs; park the original in
-          // the content store and log the reference. (No inline thumbnail:
-          // the server has no image resizer, so the client loads these
-          // through the /api/content proxy.)
+          // the content store, thumbnail it for the event log (Bun.Image,
+          // when the runtime has it), and log the reference.
+          const [id, thumb] = await Promise.all([
+            storeContent(image),
+            thumbnailFromDataUrl(image),
+          ]);
           await appendMessageEvent(
             user.id,
             chat.id,
@@ -270,7 +300,7 @@ export async function sendMessage(request: Request, chatId: string) {
               chatId: chat.id,
               messageId: assistantMessageId,
               role: "assistant",
-              image: { id: await storeContent(image) },
+              image: { id, ...(thumb ? { thumb } : {}) },
               model,
             }),
           );

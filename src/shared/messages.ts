@@ -89,3 +89,19 @@ export function materializeMessages(events: Array<MessageEvent>) {
   );
 }
 
+export const STALLED_AFTER_MS = 10 * 60 * 1000;
+
+// A generation that dies with its server (deploy, crash) never appends a
+// completed/error event, leaving the message "streaming" in the log
+// forever. These are detected on history load and repaired with an error
+// event. updatedAt is the last event's time, so an actively streaming
+// generation is never flagged.
+export function stalledMessages(messages: Array<ChatMessage>, nowMs: number) {
+  return messages.filter(
+    (message) =>
+      message.role === "assistant" &&
+      message.status === "streaming" &&
+      nowMs - Date.parse(message.updatedAt) > STALLED_AFTER_MS,
+  );
+}
+

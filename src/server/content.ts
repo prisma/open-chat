@@ -35,7 +35,7 @@ function r2Client() {
 
 const r2 = r2Client();
 
-function parseDataUrl(dataUrl: string) {
+export function parseDataUrl(dataUrl: string) {
   const match = /^data:image\/(png|jpeg|webp|gif);base64,(.+)$/s.exec(dataUrl);
   if (!match) throw new Error("Unsupported image data URL");
   const [, ext, base64] = match;

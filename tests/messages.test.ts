@@ -3,7 +3,7 @@ import type {
   MessageEvent,
   MessageEventInput,
 } from "../src/shared/contracts";
-import { materializeMessages } from "../src/shared/messages";
+import { materializeMessages, stalledMessages } from "../src/shared/messages";
 
 function event(input: MessageEventInput): MessageEvent {
   return {
@@ -189,5 +189,20 @@ describe("message materialization", () => {
       text: "Here you go.",
       images: ["data:image/png;base64,BBB"],
     });
+  });
+  test("flags assistant messages whose stream died without a terminal event", () => {
+    const base = Date.parse("2026-06-10T00:00:00.000Z");
+    const messages = materializeMessages([
+      event({
+        type: "message.created",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        text: "",
+      }),
+    ]);
+
+    expect(stalledMessages(messages, base + 60_000)).toHaveLength(0);
+    expect(stalledMessages(messages, base + 11 * 60_000)).toHaveLength(1);
   });
 });

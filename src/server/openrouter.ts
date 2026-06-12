@@ -98,6 +98,13 @@ export type StreamDelta = {
   };
 };
 
+// A dead socket stops producing bytes; a wedged generation keeps the
+// connection alive with keep-alive comments forever. Guard against both —
+// without these, a hung upstream leaves the assistant message "streaming"
+// in the durable log indefinitely.
+const IDLE_TIMEOUT_MS = 90_000;
+const TOTAL_TIMEOUT_MS = 10 * 60_000;
+
 // Streams a chat completion straight off OpenRouter's wire API. The
 // official SDK validates streaming chunks against a schema that drops the
 // `images` field image-generation models return, so this parses the SSE
@@ -108,43 +115,60 @@ export async function* streamChatCompletion(input: {
   userId: string;
   imageOutput?: boolean;
 }): AsyncGenerator<StreamDelta> {
-  const response = await fetch(
-    "https://openrouter.ai/api/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${requireOpenRouterApiKey()}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": env.OPENROUTER_SITE_URL,
-        "X-Title": env.OPENROUTER_APP_NAME,
-      },
-      body: JSON.stringify({
-        model: input.model,
-        messages: input.messages,
-        stream: true,
-        stream_options: { include_usage: true },
-        user: input.userId,
-        // Image-generation models only produce images when asked to.
-        ...(input.imageOutput ? { modalities: ["image", "text"] } : {}),
-      }),
-    },
+  const watchdog = new AbortController();
+  const totalTimer = setTimeout(
+    () => watchdog.abort(new Error("The model took too long to finish")),
+    TOTAL_TIMEOUT_MS,
+  );
+  let idleTimer = setTimeout(
+    () => watchdog.abort(new Error("The model stream stalled")),
+    IDLE_TIMEOUT_MS,
   );
 
-  if (!response.ok || !response.body) {
-    const text = await response.text().catch(() => "");
-    let message = `OpenRouter request failed: ${response.status}`;
-    try {
-      message = JSON.parse(text).error.message ?? message;
-    } catch {
-      // keep the status-code message
-    }
-    throw new Error(message);
-  }
+  try {
+    const response = await fetch(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${requireOpenRouterApiKey()}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": env.OPENROUTER_SITE_URL,
+          "X-Title": env.OPENROUTER_APP_NAME,
+        },
+        body: JSON.stringify({
+          model: input.model,
+          messages: input.messages,
+          stream: true,
+          stream_options: { include_usage: true },
+          user: input.userId,
+          // Image-generation models only produce images when asked to.
+          ...(input.imageOutput ? { modalities: ["image", "text"] } : {}),
+        }),
+        signal: watchdog.signal,
+      },
+    );
 
-  const decoder = new TextDecoder();
-  let buffer = "";
-  for await (const chunk of response.body) {
-    buffer += decoder.decode(chunk, { stream: true });
+    if (!response.ok || !response.body) {
+      const text = await response.text().catch(() => "");
+      let message = `OpenRouter request failed: ${response.status}`;
+      try {
+        message = JSON.parse(text).error.message ?? message;
+      } catch {
+        // keep the status-code message
+      }
+      throw new Error(message);
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for await (const chunk of response.body) {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(
+        () => watchdog.abort(new Error("The model stream stalled")),
+        IDLE_TIMEOUT_MS,
+      );
+      buffer += decoder.decode(chunk, { stream: true });
 
     let newline: number;
     while ((newline = buffer.indexOf("\n")) !== -1) {
@@ -194,6 +218,16 @@ export async function* streamChatCompletion(input: {
           : {}),
       };
     }
+    }
+  } catch (error) {
+    // Surface the watchdog's reason instead of a generic AbortError.
+    if (watchdog.signal.aborted && watchdog.signal.reason instanceof Error) {
+      throw watchdog.signal.reason;
+    }
+    throw error;
+  } finally {
+    clearTimeout(totalTimer);
+    clearTimeout(idleTimer);
   }
 }
 
