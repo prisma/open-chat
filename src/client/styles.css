@@ -1759,11 +1759,39 @@ textarea {
 }
 
 .tour-scroll-hint {
-  position: absolute;
-  bottom: 22px;
-  color: var(--text-3);
-  font-size: 18px;
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: max(22px, env(safe-area-inset-bottom));
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 20px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 10px 28px -10px color-mix(in srgb, var(--accent) 70%, transparent);
+  animation: tour-hint-in 0.6s 0.45s var(--ease) both;
+  transition: opacity 0.25s var(--ease);
+}
+
+.tour-scroll-hint.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tour-scroll-chev {
+  display: inline-block;
   animation: tour-bob 1.6s ease-in-out infinite;
+}
+
+@keyframes tour-hint-in {
+  from {
+    opacity: 0;
+  }
 }
 
 @keyframes tour-rise {
@@ -2075,7 +2103,8 @@ textarea {
     transform: none;
   }
 
-  .tour-scroll-hint {
+  .tour-scroll-hint,
+  .tour-scroll-chev {
     animation: none;
   }
 

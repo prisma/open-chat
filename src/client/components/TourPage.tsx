@@ -405,7 +405,18 @@ export function TourPage() {
       { threshold: 0.18, rootMargin: "0px 0px -40px 0px" },
     );
     for (const el of revealed) observer.observe(el);
-    return () => observer.disconnect();
+
+    // The scroll pill is fixed to the viewport so it's above the fold on
+    // any window size; retire it as soon as the reader starts moving.
+    const hint = document.querySelector(".tour-scroll-hint");
+    const onScroll = () =>
+      hint?.classList.toggle("hidden", window.scrollY > 60);
+    window.addEventListener("scroll", onScroll, { passive: true });
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("scroll", onScroll);
+    };
   }, []);
 
   return (
@@ -441,9 +452,20 @@ export function TourPage() {
             <GitHubMark size={15} /> Read the code
           </a>
         </div>
-        <div className="tour-scroll-hint" aria-hidden>
-          ↓
-        </div>
+        <button
+          className="tour-scroll-hint"
+          type="button"
+          onClick={() =>
+            document
+              .querySelector(".tour-section")
+              ?.scrollIntoView({ behavior: "smooth", block: "start" })
+          }
+        >
+          Start the tour
+          <span className="tour-scroll-chev" aria-hidden>
+            ↓
+          </span>
+        </button>
       </header>
 
       <main>
