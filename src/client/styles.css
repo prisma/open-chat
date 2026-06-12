@@ -2301,3 +2301,19 @@ textarea {
   font-weight: 600;
   pointer-events: none;
 }
+
+.msg-audio-block {
+  margin: 4px 0;
+}
+
+.msg-transcript {
+  margin: 4px 2px 0;
+  max-width: 360px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-3);
+}
+
+.msg.user .msg-transcript {
+  text-align: right;
+}

@@ -62,7 +62,7 @@ export function applyMessageEvent(
     case "message.audio": {
       messages.set(event.messageId, {
         ...base,
-        role: "assistant",
+        role: existing?.role ?? event.role,
         text: existing?.text ?? "",
         images: existing?.images,
         audio: event.audio,

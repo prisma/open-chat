@@ -126,9 +126,11 @@ export const messageEventSchema = z.discriminatedUnion("type", [
     role: z.literal("assistant"),
     audio: z.string(),
   }),
+  // Also used to backfill a transcript onto a user voice note after the
+  // fact — transcription runs as a separate cheap model call.
   eventBaseSchema.extend({
     type: z.literal("message.audio"),
-    role: z.literal("assistant"),
+    role: z.enum(["user", "assistant"]),
     audio: messageAudioSchema,
   }),
   eventBaseSchema.extend({

@@ -16,7 +16,7 @@ export async function getContent(request: Request, id: string) {
     throw new HttpError(404, "Not found");
   }
 
-  const response = await readContent(id);
+  const response = await readContent(id, request.headers.get("range"));
   if (!response) throw new HttpError(404, "Not found");
   return response;
 }

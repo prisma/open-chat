@@ -44,6 +44,11 @@ import { requireOwnedChat } from "./chats";
 
 const encoder = new TextEncoder();
 
+// Voice notes are transcribed out-of-band by a cheap audio-in model and
+// the text backfilled onto the user message — chat completions never
+// return a transcript of *input* audio, only of generated speech.
+const TRANSCRIBE_MODEL = "google/gemini-2.5-flash-lite";
+
 function newEvent(event: MessageEventInput): MessageEvent {
   return {
     ...event,
@@ -423,6 +428,59 @@ export async function sendMessage(request: Request, chatId: string) {
           error: error instanceof Error ? error.message : "Model call failed",
         }),
       );
+    }
+
+    // After the reply settles (so usage rows never race), transcribe the
+    // voice note. A transcript is a nicety — failures stay silent.
+    if (audioNote && wireAudio) {
+      try {
+        let transcript = "";
+        let usage: Parameters<typeof summarizeUsage>[1];
+        for await (const delta of streamChatCompletion({
+          model: TRANSCRIBE_MODEL,
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "Transcribe the attached audio verbatim. Reply with only the transcript text.",
+                },
+                { type: "input_audio", input_audio: wireAudio },
+              ],
+            },
+          ],
+          userId: user.id,
+        })) {
+          if (delta.text) transcript += delta.text;
+          if (delta.usage) usage = delta.usage;
+        }
+        transcript = transcript.trim().slice(0, 2_000);
+        if (transcript) {
+          await appendMessageEvent(
+            user.id,
+            chat.id,
+            newEvent({
+              type: "message.audio",
+              chatId: chat.id,
+              messageId: userMessageId,
+              role: "user",
+              audio: { id: audioNote.id, transcript },
+              model,
+            }),
+          );
+          await recordUsage(
+            {
+              id: user.id,
+              isAnonymous: (user as { isAnonymous?: boolean | null })
+                .isAnonymous,
+            },
+            await summarizeUsage(TRANSCRIBE_MODEL, usage),
+          );
+        }
+      } catch (error) {
+        console.error("Voice note transcription failed", error);
+      }
     }
   })();
 

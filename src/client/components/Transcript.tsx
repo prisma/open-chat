@@ -22,16 +22,21 @@ import { LogoMark } from "./LogoMark";
 function MessageAudioPlayer({
   audio,
 }: {
-  audio: { id: string } | undefined;
+  audio: { id: string; transcript?: string | undefined } | undefined;
 }) {
   if (!audio) return null;
   return (
-    <audio
-      className="msg-audio"
-      controls
-      preload="none"
-      src={`/api/content/${audio.id}`}
-    />
+    <div className="msg-audio-block">
+      <audio
+        className="msg-audio"
+        controls
+        preload="none"
+        src={`/api/content/${audio.id}`}
+      />
+      {audio.transcript ? (
+        <p className="msg-transcript">“{audio.transcript}”</p>
+      ) : null}
+    </div>
   );
 }
 

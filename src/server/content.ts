@@ -75,24 +75,48 @@ export async function contentReadableBy(id: string, userId: string) {
 }
 
 /**
- * Serves a stored image. The id is validated by the route (a UUID plus
- * extension), so it cannot traverse outside the store.
+ * Serves a stored object, honoring HTTP Range requests — the <audio>
+ * scrubber can't seek without 206 responses. The id is validated by the
+ * route (a UUID plus extension), so it cannot traverse outside the store.
  */
-export async function readContent(id: string) {
-  const type = TYPE_BY_EXT[id.split(".").at(-1)!] ?? "";
-  const headers = {
-    "Content-Type": type,
+export async function readContent(id: string, range?: string | null) {
+  const file = r2 ? r2.file(`content/${id}`) : Bun.file(join(LOCAL_DIR, id));
+  if (!(await file.exists())) return undefined;
+  const size = r2
+    ? (await (file as Bun.S3File).stat()).size
+    : (file as Bun.BunFile).size;
+
+  const headers: Record<string, string> = {
+    "Content-Type": TYPE_BY_EXT[id.split(".").at(-1)!] ?? "",
     // Ids are unique per object and never rewritten.
     "Cache-Control": "private, max-age=31536000, immutable",
+    "Accept-Ranges": "bytes",
   };
 
-  if (r2) {
-    const file = r2.file(`content/${id}`);
-    if (!(await file.exists())) return undefined;
-    return new Response(file.stream(), { headers });
+  const match = range ? /^bytes=(\d*)-(\d*)$/.exec(range) : null;
+  if (match && (match[1] || match[2])) {
+    // "bytes=a-b", "bytes=a-" or the suffix form "bytes=-n".
+    const start = match[1]
+      ? Number(match[1])
+      : Math.max(0, size - Number(match[2]));
+    const end = match[1] && match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
+    if (start >= size || start > end) {
+      return new Response(null, {
+        status: 416,
+        headers: { ...headers, "Content-Range": `bytes */${size}` },
+      });
+    }
+    return new Response(file.slice(start, end + 1).stream(), {
+      status: 206,
+      headers: {
+        ...headers,
+        "Content-Range": `bytes ${start}-${end}/${size}`,
+        "Content-Length": String(end - start + 1),
+      },
+    });
   }
 
-  const file = Bun.file(join(LOCAL_DIR, id));
-  if (!(await file.exists())) return undefined;
-  return new Response(file, { headers });
+  return new Response(file.stream(), {
+    headers: { ...headers, "Content-Length": String(size) },
+  });
 }
