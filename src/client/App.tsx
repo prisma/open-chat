@@ -23,7 +23,15 @@ export function App() {
       ?.isAnonymous,
   );
 
+  const lastUserId = useRef("");
   useEffect(() => {
+    const previous = lastUserId.current;
+    lastUserId.current = userId;
+    // Only an identity *change* (sign-out, or a guest becoming an account)
+    // resets client state. The initial session resolution on page load must
+    // not — resetClientState clears the #/chat permalink from the URL, and
+    // a reload would always land on the top chat instead of the linked one.
+    if (!previous || previous === userId) return;
     stopChatStream();
     resetAfterAuthTransition();
   }, [userId]);
