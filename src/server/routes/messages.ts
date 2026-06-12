@@ -21,8 +21,7 @@ import {
   sseEncode,
 } from "../http";
 import {
-  modelOutputsAudio,
-  modelOutputsImages,
+  modelCapabilities,
   streamChatCompletion,
   type WireContentPart,
   type WireMessage,
@@ -162,7 +161,11 @@ export async function streamEvents(request: Request, chatId: string) {
 
 function toOpenRouterMessages(
   events: Array<MessageEvent>,
-  currentAudio?: { data: string; format: "wav" | "mp3" },
+  options: {
+    currentAudio?: { data: string; format: "wav" | "mp3" } | undefined;
+    seesImages: boolean;
+    hearsAudio: boolean;
+  },
 ) {
   const eligible = materializeMessages(events).filter(
     (message) =>
@@ -177,20 +180,28 @@ function toOpenRouterMessages(
       // seeing them in follow-ups — the inline thumbnail is plenty for
       // context. Generated assistant images stay out — models reject image
       // parts in assistant turns.
-      const images = (message.role === "user" ? (message.images ?? []) : [])
+      const images = (message.role === "user" && options.seesImages
+        ? (message.images ?? [])
+        : []
+      )
         .map((image) => (typeof image === "string" ? image : image.thumb))
         .filter((url): url is string => Boolean(url));
       // Only the current turn's audio is uploaded to the model; earlier
-      // voice notes would re-send megabytes per turn, so they degrade to a
-      // marker the model can still see in context.
+      // voice notes would re-send megabytes per turn. Anything the target
+      // model can't take (a text model seeing images, a deaf model hearing
+      // audio) degrades to a marker it can still read in context.
       const audio =
-        message.id === lastUserId ? currentAudio : undefined;
-      const audioMarker =
-        message.audio && message.id !== lastUserId ? "[voice message]" : "";
+        message.id === lastUserId && options.hearsAudio
+          ? options.currentAudio
+          : undefined;
+      const markers = [
+        message.audio && !audio ? "[voice message]" : "",
+        message.images?.length && !images.length ? "[image]" : "",
+      ].filter(Boolean);
       if (!images.length && !audio) {
         return {
           role: message.role,
-          content: [message.text, audioMarker].filter(Boolean).join(" "),
+          content: [message.text, ...markers].filter(Boolean).join(" "),
         };
       }
       const parts: Array<WireContentPart> = images.map((image) => ({
@@ -280,8 +291,13 @@ export async function sendMessage(request: Request, chatId: string) {
     updatedAt: new Date(),
   });
 
+  const capabilities = await modelCapabilities(model);
   const { events } = await loadAllMessageEvents(user.id, chat.id);
-  const messages = toOpenRouterMessages(events, wireAudio);
+  const messages = toOpenRouterMessages(events, {
+    currentAudio: wireAudio,
+    seesImages: capabilities.seesImages,
+    hearsAudio: capabilities.hearsAudio,
+  });
 
   void (async () => {
     try {
@@ -289,8 +305,8 @@ export async function sendMessage(request: Request, chatId: string) {
         model,
         messages,
         userId: user.id,
-        imageOutput: await modelOutputsImages(model),
-        audioOutput: await modelOutputsAudio(model),
+        imageOutput: capabilities.outputsImages,
+        audioOutput: capabilities.outputsAudio,
       });
 
       // Spoken audio: chunks are appended as events for live playback and

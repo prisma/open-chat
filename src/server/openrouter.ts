@@ -31,6 +31,8 @@ export async function listOpenRouterModels() {
 
 type ModelMeta = {
   pricing: { prompt: number; completion: number };
+  seesImages: boolean;
+  hearsAudio: boolean;
   outputsImages: boolean;
   outputsAudio: boolean;
 };
@@ -58,6 +60,8 @@ async function getModelMeta(modelId: string) {
                 prompt: Number(pricing.prompt ?? 0) || 0,
                 completion: Number(pricing.completion ?? 0) || 0,
               },
+              seesImages: model.inputModalities.includes("image"),
+              hearsAudio: model.inputModalities.includes("audio"),
               outputsImages: model.outputModalities.includes("image"),
               outputsAudio: model.outputModalities.includes("audio"),
             },
@@ -74,12 +78,17 @@ export async function getModelPricing(modelId: string) {
   return (await getModelMeta(modelId))?.pricing;
 }
 
-export async function modelOutputsImages(modelId: string) {
-  return (await getModelMeta(modelId).catch(() => undefined))?.outputsImages ?? false;
-}
-
-export async function modelOutputsAudio(modelId: string) {
-  return (await getModelMeta(modelId).catch(() => undefined))?.outputsAudio ?? false;
+// What a model accepts and produces — the request must never include
+// parts the target model's endpoints can't take, or OpenRouter rejects
+// the whole call ("No endpoints found that support image input").
+export async function modelCapabilities(modelId: string) {
+  const meta = await getModelMeta(modelId).catch(() => undefined);
+  return {
+    seesImages: meta?.seesImages ?? false,
+    hearsAudio: meta?.hearsAudio ?? false,
+    outputsImages: meta?.outputsImages ?? false,
+    outputsAudio: meta?.outputsAudio ?? false,
+  };
 }
 
 // Wire-shaped chat messages: content is either plain text or a list of
