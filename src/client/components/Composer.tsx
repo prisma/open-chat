@@ -432,7 +432,8 @@ export function Composer({
           <button
             className="icon-button attach-button"
             type="button"
-            aria-label="Attach images"
+            aria-label="Add image"
+            title="Add image"
             disabled={ui.composerImages.length >= MAX_ATTACHMENTS}
             onClick={() => fileInputRef.current?.click()}
           >
@@ -441,7 +442,8 @@ export function Composer({
           <button
             className={recording ? "icon-button mic-button recording" : "icon-button mic-button"}
             type="button"
-            aria-label={recording ? "Stop dictation" : "Dictate a voice note"}
+            aria-label={recording ? "Stop dictation" : "Add dictation"}
+            title={recording ? "Stop dictation" : "Add dictation"}
             aria-pressed={recording}
             onClick={() => void toggleDictation()}
           >
