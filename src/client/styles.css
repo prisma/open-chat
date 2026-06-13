@@ -2317,3 +2317,39 @@ textarea {
 .msg.user .msg-transcript {
   text-align: right;
 }
+
+/* Read-along: spoken replies highlight each word as it is voiced. The
+   transcript is plain speech, rendered as word spans over pre-wrap text. */
+.msg-spoken {
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+
+.spoken-word {
+  border-radius: 4px;
+  padding: 1px 1px;
+  margin: -1px -1px;
+  cursor: pointer;
+  transition:
+    background-color 0.18s var(--ease),
+    color 0.25s var(--ease);
+}
+
+.spoken-word:hover {
+  background: var(--surface-2);
+}
+
+.spoken-word.now {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.spoken-word.upcoming {
+  color: var(--text-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spoken-word {
+    transition: none;
+  }
+}

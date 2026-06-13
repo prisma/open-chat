@@ -26,7 +26,9 @@ import {
   type WireContentPart,
   type WireMessage,
 } from "../openrouter";
-import { wavFromPcm16 } from "../audio";
+import { wavFromPcm16, whisperWordTimings, WHISPER_USD_PER_MINUTE } from "../audio";
+import { alignWordsToTranscript } from "../audio-timings";
+import { env } from "../env";
 import { waitUntil } from "../compute";
 import { storeContent } from "../content";
 import { thumbnailFromDataUrl } from "../images";
@@ -319,6 +321,8 @@ export async function sendMessage(request: Request, chatId: string) {
       const pcmChunks: Array<Buffer> = [];
       let pcmBytes = 0;
       const PCM_EVENT_LIMIT = 12 * 1024 * 1024;
+      // The reply text, accumulated for forced alignment of the speech.
+      let spokenText = "";
 
       let finishReason: string | null = null;
       let usage:
@@ -337,6 +341,7 @@ export async function sendMessage(request: Request, chatId: string) {
         // the message text and stream like ordinary deltas.
         const text = delta.text ?? delta.audioTranscript;
         if (text) {
+          spokenText += text;
           await appendMessageEvent(
             user.id,
             chat.id,
@@ -394,9 +399,11 @@ export async function sendMessage(request: Request, chatId: string) {
         }
       }
 
+      let spokenAudio: { wav: Uint8Array; id: string } | undefined;
       if (pcmChunks.length) {
         const wav = wavFromPcm16(Buffer.concat(pcmChunks));
         const dataUrl = `data:audio/wav;base64,${Buffer.from(wav).toString("base64")}`;
+        spokenAudio = { wav, id: await storeContent(dataUrl, user.id) };
         await appendMessageEvent(
           user.id,
           chat.id,
@@ -405,7 +412,7 @@ export async function sendMessage(request: Request, chatId: string) {
             chatId: chat.id,
             messageId: assistantMessageId,
             role: "assistant",
-            audio: { id: await storeContent(dataUrl, user.id) },
+            audio: { id: spokenAudio.id },
             model,
           }),
         );
@@ -435,6 +442,48 @@ export async function sendMessage(request: Request, chatId: string) {
       await db.orm.Chat.where({ id: chat.id }).update({
         updatedAt: new Date(),
       });
+
+      // Read-along timings: whisper timestamps the stored speech, a pure
+      // aligner maps them onto the reply text, and the result is appended
+      // as one more durable audio event. Optional (needs OPENAI_API_KEY)
+      // and best-effort — the reply is already complete either way.
+      if (spokenAudio && spokenText && env.OPENAI_API_KEY) {
+        try {
+          const recognized = await whisperWordTimings(spokenAudio.wav);
+          const timings = alignWordsToTranscript(spokenText, recognized);
+          if (timings.length) {
+            await appendMessageEvent(
+              user.id,
+              chat.id,
+              newEvent({
+                type: "message.audio",
+                chatId: chat.id,
+                messageId: assistantMessageId,
+                role: "assistant",
+                audio: { id: spokenAudio.id, timings },
+                model,
+              }),
+            );
+            const minutes = pcmBytes / 2 / 24_000 / 60;
+            await recordUsage(
+              {
+                id: user.id,
+                isAnonymous: (user as { isAnonymous?: boolean | null })
+                  .isAnonymous,
+              },
+              {
+                inputTokens: 0,
+                outputTokens: 0,
+                costMicroUsd: Math.ceil(
+                  minutes * WHISPER_USD_PER_MINUTE * 1_000_000,
+                ),
+              },
+            );
+          }
+        } catch (error) {
+          console.error("Read-along timing alignment failed", error);
+        }
+      }
     } catch (error) {
       await appendMessageEvent(
         user.id,

@@ -46,6 +46,10 @@ Submitting the composer appends a durable user message event to Prisma Streams w
 
 Assistant output streams smoothly into the transcript with markdown rendering. Each delta is durable before the browser applies it, allowing reconnect and refresh recovery.
 
+## 11a. Read-Along Spoken Replies
+
+Audio-output models stream speech live; the stored reply replays through a normal player. When `OPENAI_API_KEY` is set, whisper word timestamps are force-aligned to the transcript (`src/server/audio-timings.ts`) and appended as one more durable audio event — playback then highlights each word as it is voiced, and clicking a word seeks to it.
+
 ## 12. Resume Chat After Refresh
 
 Reloading the browser replays durable events from Prisma Streams for the selected chat and reconstructs message state.

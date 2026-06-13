@@ -1,6 +1,48 @@
 // PCM16 → WAV. Audio-output models stream raw 24 kHz mono PCM16 chunks;
 // wrapping the concatenated samples in a 44-byte RIFF header is all it
 // takes to make a seekable file for the content store — no encoder needed.
+//
+// Also: whisper word timestamps for read-along highlighting. OpenRouter
+// has no transcription endpoint and chat models can't timestamp reliably,
+// so this is the one direct-to-OpenAI call in the app — optional, keyed
+// on OPENAI_API_KEY.
+import type { RecognizedWord } from "./audio-timings";
+import { env } from "./env";
+
+// whisper-1 list price; used to charge the alignment to the ledger.
+export const WHISPER_USD_PER_MINUTE = 0.006;
+
+export async function whisperWordTimings(
+  wav: Uint8Array,
+): Promise<Array<RecognizedWord>> {
+  if (!env.OPENAI_API_KEY) return [];
+
+  const form = new FormData();
+  form.append("file", new File([wav as BufferSource], "speech.wav", { type: "audio/wav" }));
+  form.append("model", "whisper-1");
+  form.append("response_format", "verbose_json");
+  form.append("timestamp_granularities[]", "word");
+
+  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { authorization: `Bearer ${env.OPENAI_API_KEY}` },
+    body: form,
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`whisper failed: ${response.status} ${body.slice(0, 200)}`);
+  }
+
+  const payload = (await response.json()) as {
+    words?: Array<{ word: string; start: number; end: number }>;
+  };
+  return (payload.words ?? []).filter(
+    (word) =>
+      typeof word.word === "string" &&
+      Number.isFinite(word.start) &&
+      Number.isFinite(word.end),
+  );
+}
 
 export function wavFromPcm16(
   pcm: Uint8Array,

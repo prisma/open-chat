@@ -49,9 +49,24 @@ const audioDataUrlPattern = /^data:audio\/(wav|mpeg|mp3);base64,/;
 // A voice note or audio file attached to a message, or a model's spoken
 // reply. Like images, the payload lives in the content store; the event
 // log carries the reference (and the transcript, for model speech).
+//
+// `timings` maps spoken words to the message text for read-along
+// highlighting: [charStart, charEnd, startMs, endMs] per word, with char
+// offsets into the message's text. Appended as a follow-up message.audio
+// event once forced alignment has run.
+export const wordTimingSchema = z.tuple([
+  z.number().int().nonnegative(),
+  z.number().int().nonnegative(),
+  z.number().int().nonnegative(),
+  z.number().int().nonnegative(),
+]);
+
+export type WordTiming = z.infer<typeof wordTimingSchema>;
+
 export const messageAudioSchema = z.object({
   id: contentIdSchema,
   transcript: z.string().optional(),
+  timings: z.array(wordTimingSchema).max(6_000).optional(),
 });
 
 export type MessageAudio = z.infer<typeof messageAudioSchema>;
