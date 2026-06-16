@@ -8,9 +8,6 @@ const envSchema = z.object({
   GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
   GOOGLE_CLIENT_ID: z.string().min(1).optional(),
   GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
-  // Optional: enables whisper word timestamps for read-along highlighting
-  // on spoken replies. The only direct-to-OpenAI call in the app.
-  OPENAI_API_KEY: z.string().min(1).optional(),
   OPENROUTER_API_KEY: z.string().min(1).optional(),
   OPENROUTER_APP_NAME: z.string().default("Open Chat Local"),
   OPENROUTER_SITE_URL: z.string().url().default("http://localhost:3000"),
@@ -31,4 +28,3 @@ export function requireOpenRouterApiKey() {
 
   return env.OPENROUTER_API_KEY;
 }
-

@@ -7,7 +7,11 @@ import type {
   StreamCheckpoint,
 } from "../shared/contracts";
 import { applyMessageEvent } from "../shared/messages";
-import { enqueueLiveAudio, stopLiveAudio } from "./audio";
+import {
+  enqueueLiveAudio,
+  setLiveAudioProgressReporter,
+  stopLiveAudio,
+} from "./audio";
 import {
   messagesCollection,
   updateUi,
@@ -18,6 +22,14 @@ import {
 
 let source: EventSource | undefined;
 let activeChatId = "";
+
+setLiveAudioProgressReporter((messageId, currentMs) => {
+  if (!messagesCollection.has(messageId)) return;
+  messagesCollection.update(messageId, (draft) => {
+    draft.audioCursorMs = currentMs;
+    draft.audioLive = currentMs !== undefined;
+  });
+});
 
 function materializeEvent(event: DurableMessageEvent) {
   // Spoken audio plays as it arrives; the chunk itself never enters the

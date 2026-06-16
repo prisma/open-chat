@@ -12,7 +12,25 @@ const DICTATION_SAMPLE_RATE = 16_000;
 let context: AudioContext | undefined;
 let liveMessageId = "";
 let nextStartTime = 0;
+let nextAudioMs = 0;
 let liveSources: Array<AudioBufferSourceNode> = [];
+let liveSegments: Array<{
+  start: number;
+  end: number;
+  audioStartMs: number;
+  audioEndMs: number;
+}> = [];
+let progressFrame = 0;
+let lastReportedMs = -1;
+let progressReporter:
+  | ((messageId: string, currentMs: number | undefined) => void)
+  | undefined;
+
+export function setLiveAudioProgressReporter(
+  reporter: (messageId: string, currentMs: number | undefined) => void,
+) {
+  progressReporter = reporter;
+}
 
 function base64ToBytes(base64: string) {
   const binary = atob(base64);
@@ -28,6 +46,10 @@ export function enqueueLiveAudio(messageId: string, base64Pcm: string) {
     stopLiveAudio();
     liveMessageId = messageId;
     nextStartTime = context.currentTime;
+    nextAudioMs = 0;
+    liveSegments = [];
+    lastReportedMs = -1;
+    progressReporter?.(liveMessageId, 0);
   }
 
   const bytes = base64ToBytes(base64Pcm);
@@ -40,15 +62,66 @@ export function enqueueLiveAudio(messageId: string, base64Pcm: string) {
   source.buffer = buffer;
   source.connect(context.destination);
   const at = Math.max(context.currentTime, nextStartTime);
+  const durationMs = Math.round(buffer.duration * 1000);
+  const audioStartMs = nextAudioMs;
+  const audioEndMs = audioStartMs + durationMs;
   source.start(at);
   nextStartTime = at + buffer.duration;
+  nextAudioMs = audioEndMs;
+  liveSegments.push({
+    start: at,
+    end: at + buffer.duration,
+    audioStartMs,
+    audioEndMs,
+  });
   liveSources.push(source);
+  ensureProgressLoop();
   source.onended = () => {
     liveSources = liveSources.filter((s) => s !== source);
   };
 }
 
+function currentLiveAudioMs(now: number) {
+  let lastEndMs = 0;
+  for (const segment of liveSegments) {
+    if (now < segment.start) return lastEndMs;
+    if (now <= segment.end) {
+      return (
+        segment.audioStartMs +
+        Math.round((now - segment.start) * 1000)
+      );
+    }
+    lastEndMs = segment.audioEndMs;
+  }
+  return lastEndMs;
+}
+
+function ensureProgressLoop() {
+  if (progressFrame) return;
+  const tick = () => {
+    if (!context || !liveMessageId) {
+      progressFrame = 0;
+      return;
+    }
+
+    const currentMs = currentLiveAudioMs(context.currentTime);
+    if (Math.abs(currentMs - lastReportedMs) >= 40) {
+      lastReportedMs = currentMs;
+      progressReporter?.(liveMessageId, currentMs);
+    }
+
+    if (liveSources.length || context.currentTime < nextStartTime + 0.2) {
+      progressFrame = requestAnimationFrame(tick);
+    } else {
+      progressFrame = 0;
+      progressReporter?.(liveMessageId, nextAudioMs);
+    }
+  };
+  progressFrame = requestAnimationFrame(tick);
+}
+
 export function stopLiveAudio() {
+  const messageId = liveMessageId;
   for (const source of liveSources) {
     try {
       source.stop();
@@ -58,6 +131,11 @@ export function stopLiveAudio() {
   }
   liveSources = [];
   liveMessageId = "";
+  liveSegments = [];
+  nextAudioMs = 0;
+  if (progressFrame) cancelAnimationFrame(progressFrame);
+  progressFrame = 0;
+  if (messageId) progressReporter?.(messageId, undefined);
 }
 
 // ---- Dictation ----------------------------------------------------------

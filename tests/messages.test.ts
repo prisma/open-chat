@@ -98,6 +98,116 @@ describe("message materialization", () => {
     });
   });
 
+  test("keeps usage when audio timings arrive after completion", () => {
+    const messages = materializeMessages([
+      event({
+        type: "message.created",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        text: "",
+      }),
+      event({
+        type: "message.delta",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        text: "Hello world",
+      }),
+      event({
+        type: "message.completed",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        usage: { inputTokens: 1, outputTokens: 2, costMicroUsd: 3 },
+      }),
+      event({
+        type: "message.audio",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        audio: {
+          id: "00000000-0000-0000-0000-000000000000.wav",
+          timings: [
+            [0, 5, 0, 250],
+            [6, 11, 250, 500],
+          ],
+        },
+      }),
+    ]);
+
+    expect(messages[0]).toMatchObject({
+      status: "completed",
+      usage: { inputTokens: 1, outputTokens: 2, costMicroUsd: 3 },
+      spokenTimings: [
+        [0, 5, 0, 250],
+        [6, 11, 250, 500],
+      ],
+    });
+  });
+
+  test("merges incremental audio timing events into the spoken reply", () => {
+    const messages = materializeMessages([
+      event({
+        type: "message.created",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        text: "",
+      }),
+      event({
+        type: "message.delta",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        text: "Hello ",
+      }),
+      event({
+        type: "message.audio.timing",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        timings: [[0, 5, 0, 300]],
+      }),
+      event({
+        type: "message.delta",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        text: "world",
+      }),
+      event({
+        type: "message.audio.timing",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        timings: [[6, 11, 300, 650]],
+      }),
+      event({
+        type: "message.audio",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        audio: { id: "00000000-0000-0000-0000-000000000000.wav" },
+      }),
+    ]);
+
+    expect(messages[0]).toMatchObject({
+      text: "Hello world",
+      audio: {
+        id: "00000000-0000-0000-0000-000000000000.wav",
+        timings: [
+          [0, 5, 0, 300],
+          [6, 11, 300, 650],
+        ],
+      },
+      spokenTimings: [
+        [0, 5, 0, 300],
+        [6, 11, 300, 650],
+      ],
+    });
+  });
+
   test("ignores legacy raw usage payloads on completion events", () => {
     const messages = materializeMessages([
       event({

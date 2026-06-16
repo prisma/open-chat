@@ -1,12 +1,7 @@
-// Forced alignment between a spoken reply's transcript (the message text)
-// and whisper's word-level timestamps for the same audio.
-//
-// The audio was generated *from* this text, so the two word sequences are
-// nearly identical — differences are punctuation, casing, and the odd
-// number-vs-word substitution. A monotonic two-pointer walk with a small
-// resync window absorbs those; transcript words whisper missed get times
-// interpolated from their neighbors. If fewer than half the words match,
-// the alignment is judged untrustworthy and dropped entirely.
+// Word timing helpers for spoken replies. Audio-output models stream both
+// transcript fragments and PCM chunks through OpenRouter; the app derives
+// read-along timings from those chunks instead of making a second model
+// call.
 import type { WordTiming } from "../shared/contracts";
 
 export type RecognizedWord = { word: string; start: number; end: number };
@@ -28,6 +23,43 @@ export function tokenizeWords(text: string): Array<TextWord> {
   return words;
 }
 
+export function estimateWordTimings(
+  text: string,
+  {
+    charOffset,
+    startMs,
+    endMs,
+  }: { charOffset: number; startMs: number; endMs: number },
+): Array<WordTiming> {
+  const words = tokenizeWords(text);
+  if (!words.length) return [];
+
+  const start = Math.max(0, Math.round(startMs));
+  const end =
+    endMs > startMs
+      ? Math.max(start + 1, Math.round(endMs))
+      : start + words.length * 180;
+  const span = end - start;
+  const weights = words.map((word) => Math.max(1, word.text.length));
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  let elapsedWeight = 0;
+
+  return words.map((word, index) => {
+    const wordStart = start + Math.round((span * elapsedWeight) / totalWeight);
+    elapsedWeight += weights[index]!;
+    const wordEnd =
+      index === words.length - 1
+        ? end
+        : start + Math.round((span * elapsedWeight) / totalWeight);
+    return [
+      charOffset + word.start,
+      charOffset + word.end,
+      wordStart,
+      Math.max(wordStart + 1, wordEnd),
+    ];
+  });
+}
+
 function normalize(word: string) {
   return word
     .normalize("NFKD")
@@ -36,7 +68,7 @@ function normalize(word: string) {
 }
 
 /**
- * Pair transcript words with recognized words, monotonically. Returns
+ * Pair transcript words with separately recognized words, monotonically. Returns
  * per-transcript-word timings ([charStart, charEnd, startMs, endMs]) or []
  * when the sequences disagree too much to trust.
  */

@@ -48,7 +48,7 @@ Assistant output streams smoothly into the transcript with markdown rendering. E
 
 ## 11a. Read-Along Spoken Replies
 
-Audio-output models stream speech live; the stored reply replays through a normal player. When `OPENAI_API_KEY` is set, whisper word timestamps are force-aligned to the transcript (`src/server/audio-timings.ts`) and appended as one more durable audio event — playback then highlights each word as it is voiced, and clicking a word seeks to it.
+Audio-output models stream speech live; the stored reply replays through a normal player. OpenRouter transcript fragments are paired with their PCM audio spans and appended as durable `message.audio.timing` events, so playback highlights words while the model is speaking and preserves the same read-along experience after refresh. Once the WAV is stored, clicking a highlighted word seeks to it.
 
 ## 12. Resume Chat After Refresh
 

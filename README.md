@@ -27,7 +27,7 @@ Every assistant token is appended to a durable stream **before** the browser ren
 - Credit-based billing: $2.00 free on signup, Stripe top-ups from $5 to $100 with a transparent 10% fee, and a free $0.50 drip after a month at zero
 - Usage metering in micro-USD with a per-chat, per-model cost breakdown
 - Markdown rendering, message permalinks, chat search, rename, and delete
-- Image and audio models: attach, paste, or drop images and audio, dictate voice notes, and hear spoken replies live — originals in R2, thumbnails and transcripts in the durable log
+- Image and audio models: attach, paste, or drop images and audio, dictate voice notes, and hear spoken replies live with durable read-along word highlighting — originals in R2, thumbnails, transcripts, and timing events in the durable log
 - A public [/stats](https://oss.chat/stats) page of anonymous usage aggregates — counts and token sums only, drawn with dependency-free SVG charts
 - One process, no build step: Bun serves the API, the SSE proxy, and the React client
 

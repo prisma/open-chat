@@ -32,6 +32,7 @@ Prisma Streams stores chat message events:
 - user message creation
 - assistant message creation
 - assistant text deltas
+- assistant audio deltas and read-along timing deltas
 - assistant completion metadata
 - assistant error records
 
@@ -73,7 +74,7 @@ Stream entries are JSON events. The routing key is carried in the durable stream
   "id": "evt_...",
   "chatId": "chat_...",
   "messageId": "msg_...",
-  "type": "message.created | message.delta | message.completed | message.error",
+  "type": "message.created | message.delta | message.audio.delta | message.audio.timing | message.audio | message.completed | message.error",
   "role": "user | assistant",
   "text": "delta or full text",
   "model": "openrouter/model-id",
@@ -82,7 +83,7 @@ Stream entries are JSON events. The routing key is carried in the durable stream
 }
 ```
 
-The client materializes these events into TanStack DB message rows. Assistant messages are inserted on `message.created`, updated incrementally on `message.delta`, and marked complete or failed on terminal events.
+The client materializes these events into TanStack DB message rows. Assistant messages are inserted on `message.created`, updated incrementally on `message.delta`, `message.audio.delta`, and `message.audio.timing`, then marked complete or failed on terminal events. Audio-output models stream transcript text, PCM chunks, and word timing events through the same durable log; the final `message.audio` event stores the WAV reference for replay.
 
 ## Durable Streaming Path
 
@@ -94,6 +95,8 @@ The client materializes these events into TanStack DB message rows. Assistant me
 6. Each OpenRouter delta is appended to Prisma Streams before it is visible to the UI.
 7. The browser consumes `/api/chats/:id/events` through Bun, which performs authenticated long-poll reads against Prisma Streams using the chat routing key.
 8. The client tracks the last durable offset per chat so refresh/reconnect resumes without losing tokens.
+
+For audio-output models, OpenRouter's streamed transcript and PCM chunks are paired into `message.audio.timing` events as the response arrives. The browser plays `message.audio.delta` chunks live and stores the live playback cursor in TanStack DB message rows, so read-along highlighting is driven by the same state layer as the rest of the UI. No separate transcription provider is required.
 
 The SSE proxy emits heartbeats during idle long-poll cycles and the Bun server uses a longer `idleTimeout` so durable streams stay connected while waiting for the next event.
 

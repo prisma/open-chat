@@ -11,6 +11,7 @@ import type {
   MessageAudio,
   MessageImage,
   ModelDto,
+  WordTiming,
 } from "../../shared/contracts";
 import { messagePermalink } from "../actions";
 import { checkpointsCollection, updateUi } from "../db";
@@ -41,14 +42,40 @@ function MessageAudioPlayer({
   );
 }
 
-// A spoken reply with word timings: the transcript reads along with
-// playback. Timings ([charStart, charEnd, startMs, endMs] per word, from
-// whisper forced alignment) slice the text into word spans; a rAF loop
-// follows audio.currentTime while playing. Clicking a word seeks to it.
-function SpokenText({ text, audio }: { text: string; audio: MessageAudio }) {
-  const timings = audio.timings ?? [];
+function wordAt(timings: Array<WordTiming>, currentMs: number) {
+  const ms = currentMs + 80;
+  let lo = 0;
+  let hi = timings.length - 1;
+  let found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (timings[mid]![2] <= ms) {
+      found = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return found;
+}
+
+// A spoken reply with word timings: live speech follows the AudioContext
+// cursor stored in TanStack DB, while replay follows the <audio> element.
+// Clicking a word seeks the stored WAV once it exists.
+function SpokenText({
+  text,
+  audio,
+  timings,
+  liveMs,
+}: {
+  text: string;
+  audio: MessageAudio | undefined;
+  timings: Array<WordTiming>;
+  liveMs: number | undefined;
+}) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [wordIndex, setWordIndex] = useState(-1);
+  const activeWord = liveMs !== undefined ? wordAt(timings, liveMs) : wordIndex;
 
   const segments = useMemo(() => {
     const out: Array<{ text: string; word?: number }> = [];
@@ -60,31 +87,14 @@ function SpokenText({ text, audio }: { text: string; audio: MessageAudio }) {
     });
     if (cursor < text.length) out.push({ text: text.slice(cursor) });
     return out;
-  }, [text, audio.timings]);
+  }, [text, timings]);
 
   useEffect(() => {
     const element = audioRef.current;
-    if (!element || !timings.length) return;
+    if (!element || !timings.length || liveMs !== undefined) return;
     let raf = 0;
 
-    // The last word whose start has passed; a small lead keeps the
-    // highlight from feeling a beat behind the voice.
-    const currentWord = () => {
-      const ms = element.currentTime * 1000 + 80;
-      let lo = 0;
-      let hi = timings.length - 1;
-      let found = -1;
-      while (lo <= hi) {
-        const mid = (lo + hi) >> 1;
-        if (timings[mid]![2] <= ms) {
-          found = mid;
-          lo = mid + 1;
-        } else {
-          hi = mid - 1;
-        }
-      }
-      return found;
-    };
+    const currentWord = () => wordAt(timings, element.currentTime * 1000);
 
     const tick = () => {
       setWordIndex(currentWord());
@@ -114,7 +124,7 @@ function SpokenText({ text, audio }: { text: string; audio: MessageAudio }) {
       element.removeEventListener("seeked", seeked);
       element.removeEventListener("ended", ended);
     };
-  }, [audio.timings]);
+  }, [timings, liveMs]);
 
   function seekTo(word: number) {
     const element = audioRef.current;
@@ -136,25 +146,28 @@ function SpokenText({ text, audio }: { text: string; audio: MessageAudio }) {
               role="presentation"
               className={cx(
                 "spoken-word",
-                segment.word === wordIndex && "now",
-                wordIndex >= 0 && segment.word > wordIndex && "upcoming",
+                segment.word === activeWord && "now",
+                activeWord >= 0 && segment.word > activeWord && "upcoming",
+                audio && "seekable",
               )}
-              onClick={() => seekTo(segment.word!)}
+              onClick={audio ? () => seekTo(segment.word!) : undefined}
             >
               {segment.text}
             </span>
           ),
         )}
       </div>
-      <div className="msg-audio-block">
-        <audio
-          ref={audioRef}
-          className="msg-audio"
-          controls
-          preload="none"
-          src={`/api/content/${audio.id}`}
-        />
-      </div>
+      {audio ? (
+        <div className="msg-audio-block">
+          <audio
+            ref={audioRef}
+            className="msg-audio"
+            controls
+            preload="none"
+            src={`/api/content/${audio.id}`}
+          />
+        </div>
+      ) : null}
     </>
   );
 }
@@ -238,12 +251,17 @@ function MessageView({
   // image-capable model has produced nothing at all.
   const generatingImage =
     streaming && makesImages && !message.text && !message.images?.length;
+  const readAlongTimings =
+    message.spokenTimings?.length
+      ? message.spokenTimings
+      : message.audio?.timings;
   // Spoken replies with word timings read along with playback; the plain
   // transcript is literal speech, so word spans replace the markdown pass.
   const readAlong =
-    !streaming && message.audio?.timings?.length && message.text
-      ? message.audio
+    readAlongTimings?.length && message.text && (message.audio || message.audioLive)
+      ? readAlongTimings
       : undefined;
+  const liveReadAlong = Boolean(streaming && message.audioLive);
 
   return (
     <article
@@ -256,7 +274,12 @@ function MessageView({
       />
       <div className="msg-col">
         {readAlong ? (
-          <SpokenText text={message.text} audio={readAlong} />
+          <SpokenText
+            text={message.text}
+            audio={liveReadAlong ? undefined : message.audio}
+            timings={readAlong}
+            liveMs={liveReadAlong ? message.audioCursorMs : undefined}
+          />
         ) : message.text || (streaming && !generatingImage) ? (
           <div className="msg-text">
             <MessageMarkdown text={message.text} streaming={streaming} />

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   alignWordsToTranscript,
+  estimateWordTimings,
   tokenizeWords,
 } from "../src/server/audio-timings";
 
@@ -24,6 +25,35 @@ describe("tokenizeWords", () => {
       "æventyr",
       "isn't",
       "small",
+    ]);
+  });
+});
+
+describe("estimateWordTimings", () => {
+  test("maps transcript words into an audio span with char offsets", () => {
+    expect(
+      estimateWordTimings("Hello brave world", {
+        charOffset: 10,
+        startMs: 100,
+        endMs: 900,
+      }),
+    ).toEqual([
+      [10, 15, 100, 367],
+      [16, 21, 367, 633],
+      [22, 27, 633, 900],
+    ]);
+  });
+
+  test("uses a nominal duration when no audio span is available", () => {
+    expect(
+      estimateWordTimings("one two", {
+        charOffset: 0,
+        startMs: 500,
+        endMs: 500,
+      }),
+    ).toEqual([
+      [0, 3, 500, 680],
+      [4, 7, 680, 860],
     ]);
   });
 });
@@ -56,7 +86,7 @@ describe("alignWordsToTranscript", () => {
     expect(timings[2]![3]).toBe(1000);
   });
 
-  test("interpolates words whisper missed", () => {
+  test("interpolates words recognition missed", () => {
     const timings = alignWordsToTranscript(
       "one two three four five six",
       recognized(["one", 0, 0.5], ["two", 0.5, 1], ["five", 3, 3.5], ["six", 3.5, 4]),

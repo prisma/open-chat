@@ -52,8 +52,9 @@ const audioDataUrlPattern = /^data:audio\/(wav|mpeg|mp3);base64,/;
 //
 // `timings` maps spoken words to the message text for read-along
 // highlighting: [charStart, charEnd, startMs, endMs] per word, with char
-// offsets into the message's text. Appended as a follow-up message.audio
-// event once forced alignment has run.
+// offsets into the message's text. Timings are derived from the OpenRouter
+// transcript/audio stream and can arrive incrementally before the final
+// stored WAV is available.
 export const wordTimingSchema = z.tuple([
   z.number().int().nonnegative(),
   z.number().int().nonnegative(),
@@ -141,6 +142,11 @@ export const messageEventSchema = z.discriminatedUnion("type", [
     role: z.literal("assistant"),
     audio: z.string(),
   }),
+  eventBaseSchema.extend({
+    type: z.literal("message.audio.timing"),
+    role: z.literal("assistant"),
+    timings: z.array(wordTimingSchema).min(1).max(1_000),
+  }),
   // Also used to backfill a transcript onto a user voice note after the
   // fact — transcription runs as a separate cheap model call.
   eventBaseSchema.extend({
@@ -213,6 +219,10 @@ export type ChatMessage = {
   audio?: MessageAudio | undefined;
   /** True while spoken audio is streaming live (before the WAV is stored). */
   audioLive?: boolean | undefined;
+  /** Current live playback position for streamed PCM audio. */
+  audioCursorMs?: number | undefined;
+  /** Word timings gathered while spoken audio streams. */
+  spokenTimings?: Array<WordTiming> | undefined;
   status: "streaming" | "completed" | "error";
   model?: string | undefined;
   error?: string | undefined;

@@ -4,8 +4,16 @@
 import {
   type ChatMessage,
   type MessageEvent,
+  type WordTiming,
   usageSummarySchema,
 } from "./contracts";
+
+function mergeTimings(
+  existing: Array<WordTiming> | undefined,
+  next: Array<WordTiming>,
+) {
+  return [...(existing ?? []), ...next];
+}
 
 export function applyMessageEvent(
   messages: Map<string, ChatMessage>,
@@ -29,6 +37,7 @@ export function applyMessageEvent(
         text: event.text,
         images: event.images,
         audio: event.audio,
+        spokenTimings: event.audio?.timings,
         status: event.role === "assistant" ? "streaming" : "completed",
       });
       return;
@@ -41,6 +50,9 @@ export function applyMessageEvent(
         images: existing?.images,
         audio: existing?.audio,
         audioLive: existing?.audioLive,
+        audioCursorMs: existing?.audioCursorMs,
+        spokenTimings: existing?.spokenTimings,
+        usage: existing?.usage,
         status: "streaming",
       });
       return;
@@ -55,18 +67,53 @@ export function applyMessageEvent(
         images: existing?.images,
         audio: existing?.audio,
         audioLive: true,
+        audioCursorMs: existing?.audioCursorMs,
+        spokenTimings: existing?.spokenTimings,
+        usage: existing?.usage,
         status: "streaming",
       });
       return;
     }
+    case "message.audio.timing": {
+      const spokenTimings = mergeTimings(
+        existing?.spokenTimings ?? existing?.audio?.timings,
+        event.timings,
+      );
+      messages.set(event.messageId, {
+        ...base,
+        role: "assistant",
+        text: existing?.text ?? "",
+        images: existing?.images,
+        audio: existing?.audio
+          ? { ...existing.audio, timings: spokenTimings }
+          : existing?.audio,
+        audioLive: existing?.audioLive,
+        audioCursorMs: existing?.audioCursorMs,
+        spokenTimings,
+        status: existing?.status ?? "streaming",
+        usage: existing?.usage,
+        error: existing?.error,
+      });
+      return;
+    }
     case "message.audio": {
+      const spokenTimings =
+        event.audio.timings ?? existing?.spokenTimings ?? existing?.audio?.timings;
       messages.set(event.messageId, {
         ...base,
         role: existing?.role ?? event.role,
         text: existing?.text ?? "",
         images: existing?.images,
-        audio: event.audio,
+        audio: {
+          ...event.audio,
+          ...(spokenTimings?.length ? { timings: spokenTimings } : {}),
+        },
+        audioLive: existing?.audioLive,
+        audioCursorMs: existing?.audioCursorMs,
+        spokenTimings,
         status: existing?.status ?? "streaming",
+        usage: existing?.usage,
+        error: existing?.error,
       });
       return;
     }
@@ -78,6 +125,9 @@ export function applyMessageEvent(
         images: [...(existing?.images ?? []), event.image],
         audio: existing?.audio,
         audioLive: existing?.audioLive,
+        audioCursorMs: existing?.audioCursorMs,
+        spokenTimings: existing?.spokenTimings,
+        usage: existing?.usage,
         status: "streaming",
       });
       return;
@@ -90,6 +140,9 @@ export function applyMessageEvent(
         text: existing?.text ?? "",
         images: existing?.images,
         audio: existing?.audio,
+        audioLive: existing?.audioLive,
+        audioCursorMs: existing?.audioCursorMs,
+        spokenTimings: existing?.spokenTimings,
         status: "completed",
         usage: usage.success ? usage.data : undefined,
       });
@@ -102,8 +155,12 @@ export function applyMessageEvent(
         text: existing?.text ?? "",
         images: existing?.images,
         audio: existing?.audio,
+        audioLive: existing?.audioLive,
+        audioCursorMs: existing?.audioCursorMs,
+        spokenTimings: existing?.spokenTimings,
         status: "error",
         error: event.error,
+        usage: existing?.usage,
       });
       return;
     }
@@ -136,4 +193,3 @@ export function stalledMessages(messages: Array<ChatMessage>, nowMs: number) {
       nowMs - Date.parse(message.updatedAt) > STALLED_AFTER_MS,
   );
 }
-
