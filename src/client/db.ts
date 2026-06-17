@@ -22,7 +22,13 @@ export type UiState = {
   chatSearch: string;
   modelSearch: string;
   /** Capability filter in the model picker. */
-  modelFilter: "all" | "vision" | "image-out" | "audio-in" | "audio-out";
+  modelFilter:
+    | "all"
+    | "vision"
+    | "image-out"
+    | "audio-in"
+    | "audio-out"
+    | "tts";
   selectedModel: string;
   modelPickerOpen: boolean;
   /** Pending attachments for the next message. */

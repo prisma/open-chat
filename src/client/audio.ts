@@ -2,18 +2,23 @@
 // microphone dictation encoded to WAV.
 //
 // Live playback consumes message.audio.delta events straight off the SSE
-// feed — base64 PCM16 chunks (24 kHz mono) scheduled gaplessly on an
+// feed — base64 PCM16 chunks scheduled gaplessly on an
 // AudioContext. Replay-after uses the assembled WAV from the content store
 // through a plain <audio> element instead.
+import { splitCompletePcmFrames } from "../shared/pcm";
 
-const PCM_SAMPLE_RATE = 24_000;
+const DEFAULT_PCM_SAMPLE_RATE = 24_000;
 const DICTATION_SAMPLE_RATE = 16_000;
+const LIVE_TAIL_GRACE_SECONDS = 1.5;
+const FALLBACK_OUTPUT_LATENCY_SECONDS = 0.08;
 
 let context: AudioContext | undefined;
 let liveMessageId = "";
 let nextStartTime = 0;
 let nextAudioMs = 0;
 let liveSources: Array<AudioBufferSourceNode> = [];
+let livePcmRemainder = new Uint8Array(0);
+let livePcmFrameBytes = 2;
 let liveSegments: Array<{
   start: number;
   end: number;
@@ -39,7 +44,11 @@ function base64ToBytes(base64: string) {
   return bytes;
 }
 
-export function enqueueLiveAudio(messageId: string, base64Pcm: string) {
+export function enqueueLiveAudio(
+  messageId: string,
+  base64Pcm: string,
+  options: { sampleRate?: number | undefined; channels?: number | undefined } = {},
+) {
   context ??= new AudioContext();
   if (context.state === "suspended") void context.resume();
   if (liveMessageId !== messageId) {
@@ -47,16 +56,38 @@ export function enqueueLiveAudio(messageId: string, base64Pcm: string) {
     liveMessageId = messageId;
     nextStartTime = context.currentTime;
     nextAudioMs = 0;
+    livePcmRemainder = new Uint8Array(0);
+    livePcmFrameBytes = 2;
     liveSegments = [];
     lastReportedMs = -1;
     progressReporter?.(liveMessageId, 0);
   }
 
+  const sampleRate = options.sampleRate ?? DEFAULT_PCM_SAMPLE_RATE;
+  const channels = options.channels ?? 1;
+  const frameBytes = channels * 2;
+  if (frameBytes !== livePcmFrameBytes) {
+    livePcmRemainder = new Uint8Array(0);
+    livePcmFrameBytes = frameBytes;
+  }
   const bytes = base64ToBytes(base64Pcm);
-  const pcm = new Int16Array(bytes.buffer, 0, Math.floor(bytes.length / 2));
-  const buffer = context.createBuffer(1, pcm.length, PCM_SAMPLE_RATE);
-  const channel = buffer.getChannelData(0);
-  for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i]! / 32768;
+  const { complete, remainder } = splitCompletePcmFrames(
+    livePcmRemainder,
+    bytes,
+    frameBytes,
+  );
+  livePcmRemainder = remainder;
+  if (!complete.length) return;
+
+  const pcm = new Int16Array(complete.buffer);
+  const frames = Math.floor(pcm.length / channels);
+  const buffer = context.createBuffer(channels, frames, sampleRate);
+  for (let channelIndex = 0; channelIndex < channels; channelIndex++) {
+    const channel = buffer.getChannelData(channelIndex);
+    for (let frame = 0; frame < frames; frame++) {
+      channel[frame] = pcm[frame * channels + channelIndex]! / 32768;
+    }
+  }
 
   const source = context.createBufferSource();
   source.buffer = buffer;
@@ -104,17 +135,27 @@ function ensureProgressLoop() {
       return;
     }
 
-    const currentMs = currentLiveAudioMs(context.currentTime);
+    const outputLatency =
+      context.outputLatency || FALLBACK_OUTPUT_LATENCY_SECONDS;
+    const currentMs = currentLiveAudioMs(context.currentTime - outputLatency);
     if (Math.abs(currentMs - lastReportedMs) >= 40) {
       lastReportedMs = currentMs;
       progressReporter?.(liveMessageId, currentMs);
     }
 
-    if (liveSources.length || context.currentTime < nextStartTime + 0.2) {
+    if (
+      liveSources.length ||
+      context.currentTime < nextStartTime + LIVE_TAIL_GRACE_SECONDS
+    ) {
       progressFrame = requestAnimationFrame(tick);
     } else {
+      const messageId = liveMessageId;
       progressFrame = 0;
-      progressReporter?.(liveMessageId, nextAudioMs);
+      liveMessageId = "";
+      liveSegments = [];
+      nextAudioMs = 0;
+      lastReportedMs = -1;
+      if (messageId) progressReporter?.(messageId, undefined);
     }
   };
   progressFrame = requestAnimationFrame(tick);
@@ -132,6 +173,8 @@ export function stopLiveAudio() {
   liveSources = [];
   liveMessageId = "";
   liveSegments = [];
+  livePcmRemainder = new Uint8Array(0);
+  livePcmFrameBytes = 2;
   nextAudioMs = 0;
   if (progressFrame) cancelAnimationFrame(progressFrame);
   progressFrame = 0;

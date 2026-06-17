@@ -38,6 +38,7 @@ export function applyMessageEvent(
         images: event.images,
         audio: event.audio,
         spokenTimings: event.audio?.timings,
+        spokenSpans: event.audio?.spans,
         status: event.role === "assistant" ? "streaming" : "completed",
       });
       return;
@@ -52,6 +53,7 @@ export function applyMessageEvent(
         audioLive: existing?.audioLive,
         audioCursorMs: existing?.audioCursorMs,
         spokenTimings: existing?.spokenTimings,
+        spokenSpans: existing?.spokenSpans,
         usage: existing?.usage,
         status: "streaming",
       });
@@ -59,6 +61,8 @@ export function applyMessageEvent(
     }
     // Chunk payloads are not kept on the message — live playback consumes
     // them straight off the SSE feed; replay uses the stored WAV instead.
+    // `audioLive` is browser playback state, not durable message state, so
+    // replaying historical audio chunks must not mark the message as live.
     case "message.audio.delta": {
       messages.set(event.messageId, {
         ...base,
@@ -66,9 +70,10 @@ export function applyMessageEvent(
         text: existing?.text ?? "",
         images: existing?.images,
         audio: existing?.audio,
-        audioLive: true,
+        audioLive: existing?.audioLive,
         audioCursorMs: existing?.audioCursorMs,
         spokenTimings: existing?.spokenTimings,
+        spokenSpans: existing?.spokenSpans,
         usage: existing?.usage,
         status: "streaming",
       });
@@ -79,17 +84,26 @@ export function applyMessageEvent(
         existing?.spokenTimings ?? existing?.audio?.timings,
         event.timings,
       );
+      const spokenSpans =
+        event.spans?.length
+          ? mergeTimings(existing?.spokenSpans ?? existing?.audio?.spans, event.spans)
+          : existing?.spokenSpans ?? existing?.audio?.spans;
       messages.set(event.messageId, {
         ...base,
         role: "assistant",
         text: existing?.text ?? "",
         images: existing?.images,
         audio: existing?.audio
-          ? { ...existing.audio, timings: spokenTimings }
+          ? {
+              ...existing.audio,
+              timings: spokenTimings,
+              ...(spokenSpans?.length ? { spans: spokenSpans } : {}),
+            }
           : existing?.audio,
         audioLive: existing?.audioLive,
         audioCursorMs: existing?.audioCursorMs,
         spokenTimings,
+        spokenSpans,
         status: existing?.status ?? "streaming",
         usage: existing?.usage,
         error: existing?.error,
@@ -99,6 +113,8 @@ export function applyMessageEvent(
     case "message.audio": {
       const spokenTimings =
         event.audio.timings ?? existing?.spokenTimings ?? existing?.audio?.timings;
+      const spokenSpans =
+        event.audio.spans ?? existing?.spokenSpans ?? existing?.audio?.spans;
       messages.set(event.messageId, {
         ...base,
         role: existing?.role ?? event.role,
@@ -107,10 +123,12 @@ export function applyMessageEvent(
         audio: {
           ...event.audio,
           ...(spokenTimings?.length ? { timings: spokenTimings } : {}),
+          ...(spokenSpans?.length ? { spans: spokenSpans } : {}),
         },
         audioLive: existing?.audioLive,
         audioCursorMs: existing?.audioCursorMs,
         spokenTimings,
+        spokenSpans,
         status: existing?.status ?? "streaming",
         usage: existing?.usage,
         error: existing?.error,
@@ -127,6 +145,7 @@ export function applyMessageEvent(
         audioLive: existing?.audioLive,
         audioCursorMs: existing?.audioCursorMs,
         spokenTimings: existing?.spokenTimings,
+        spokenSpans: existing?.spokenSpans,
         usage: existing?.usage,
         status: "streaming",
       });
@@ -143,6 +162,7 @@ export function applyMessageEvent(
         audioLive: existing?.audioLive,
         audioCursorMs: existing?.audioCursorMs,
         spokenTimings: existing?.spokenTimings,
+        spokenSpans: existing?.spokenSpans,
         status: "completed",
         usage: usage.success ? usage.data : undefined,
       });
@@ -158,6 +178,7 @@ export function applyMessageEvent(
         audioLive: existing?.audioLive,
         audioCursorMs: existing?.audioCursorMs,
         spokenTimings: existing?.spokenTimings,
+        spokenSpans: existing?.spokenSpans,
         status: "error",
         error: event.error,
         usage: existing?.usage,

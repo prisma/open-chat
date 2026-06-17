@@ -21,7 +21,8 @@ Implemented and verified locally on June 10, 2026. The final implementation keep
 
 ## Phase 4: OpenRouter
 
-- Completed: official OpenRouter TypeScript SDK, model catalog proxy, catalog-driven model ids, streamed chat completions, durable completion/error events.
+- Completed: OpenRouter model catalog proxy, catalog-driven model ids, streamed chat completions, durable completion/error events.
+- Since then: the OpenRouter integration moved to the raw HTTP streaming API because the app needs wire fields for generated images, audio chunks, transcript fragments, and endpoint-only speech/transcription catalog entries.
 
 ## Phase 5: TanStack DB UI
 

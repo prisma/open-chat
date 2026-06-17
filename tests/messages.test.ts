@@ -3,7 +3,11 @@ import type {
   MessageEvent,
   MessageEventInput,
 } from "../src/shared/contracts";
-import { materializeMessages, stalledMessages } from "../src/shared/messages";
+import {
+  applyMessageEvent,
+  materializeMessages,
+  stalledMessages,
+} from "../src/shared/messages";
 
 function event(input: MessageEventInput): MessageEvent {
   return {
@@ -132,6 +136,7 @@ describe("message materialization", () => {
             [0, 5, 0, 250],
             [6, 11, 250, 500],
           ],
+          spans: [[0, 11, 0, 500]],
         },
       }),
     ]);
@@ -143,6 +148,7 @@ describe("message materialization", () => {
         [0, 5, 0, 250],
         [6, 11, 250, 500],
       ],
+      spokenSpans: [[0, 11, 0, 500]],
     });
   });
 
@@ -168,6 +174,7 @@ describe("message materialization", () => {
         messageId: "msg_assistant",
         role: "assistant",
         timings: [[0, 5, 0, 300]],
+        spans: [[0, 5, 0, 300]],
       }),
       event({
         type: "message.delta",
@@ -182,6 +189,7 @@ describe("message materialization", () => {
         messageId: "msg_assistant",
         role: "assistant",
         timings: [[6, 11, 300, 650]],
+        spans: [[6, 11, 300, 650]],
       }),
       event({
         type: "message.audio",
@@ -200,11 +208,93 @@ describe("message materialization", () => {
           [0, 5, 0, 300],
           [6, 11, 300, 650],
         ],
+        spans: [
+          [0, 5, 0, 300],
+          [6, 11, 300, 650],
+        ],
       },
       spokenTimings: [
         [0, 5, 0, 300],
         [6, 11, 300, 650],
       ],
+      spokenSpans: [
+        [0, 5, 0, 300],
+        [6, 11, 300, 650],
+      ],
+    });
+  });
+
+  test("does not treat replayed durable audio chunks as live playback", () => {
+    const messages = materializeMessages([
+      event({
+        type: "message.created",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        text: "",
+      }),
+      event({
+        type: "message.delta",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        text: "Hello",
+      }),
+      event({
+        type: "message.audio.delta",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        audio: "AAAA",
+      }),
+      event({
+        type: "message.audio",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+        audio: { id: "00000000-0000-0000-0000-000000000000.wav" },
+      }),
+      event({
+        type: "message.completed",
+        chatId: "chat_1",
+        messageId: "msg_assistant",
+        role: "assistant",
+      }),
+    ]);
+
+    expect(messages[0]).toMatchObject({
+      status: "completed",
+      audioLive: undefined,
+      audioCursorMs: undefined,
+    });
+  });
+
+  test("preserves live playback state while applying stored audio events", () => {
+    const created = event({
+      type: "message.created",
+      chatId: "chat_1",
+      messageId: "msg_assistant",
+      role: "assistant",
+      text: "Hello",
+    });
+    const audio = event({
+      type: "message.audio",
+      chatId: "chat_1",
+      messageId: "msg_assistant",
+      role: "assistant",
+      audio: { id: "00000000-0000-0000-0000-000000000000.wav" },
+    });
+
+    const messages = new Map();
+    applyMessageEvent(messages, created);
+    messages.get("msg_assistant")!.audioLive = true;
+    messages.get("msg_assistant")!.audioCursorMs = 320;
+    applyMessageEvent(messages, audio);
+
+    expect(messages.get("msg_assistant")).toMatchObject({
+      audioLive: true,
+      audioCursorMs: 320,
+      audio: { id: "00000000-0000-0000-0000-000000000000.wav" },
     });
   });
 

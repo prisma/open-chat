@@ -48,7 +48,13 @@ Assistant output streams smoothly into the transcript with markdown rendering. E
 
 ## 11a. Read-Along Spoken Replies
 
-Audio-output models stream speech live; the stored reply replays through a normal player. OpenRouter transcript fragments are paired with their PCM audio spans and appended as durable `message.audio.timing` events, so playback highlights words while the model is speaking and preserves the same read-along experience after refresh. Once the WAV is stored, clicking a highlighted word seeks to it.
+Chat-completion audio models stream speech live; the stored reply replays through a normal player. OpenRouter transcript fragments are paired with their PCM audio spans and appended as durable `message.audio.timing` events, so playback highlights the spoken phrase while the model is speaking and preserves the same read-along experience after refresh. Once the WAV is stored, clicking a highlighted phrase seeks to it.
+
+## 11b. Text-To-Speech Models
+
+OpenRouter `speech` models are selectable from the same model picker. These models synthesize the submitted text through `/audio/speech`; PCM responses stream live through durable `message.audio.delta` events, while MP3-only responses appear as a replayable audio attachment once the request completes.
+
+Dedicated TTS models do not provide transcript timing metadata, so they do not support read-along highlighting. They read the submitted text aloud rather than generating a conversational reply.
 
 ## 12. Resume Chat After Refresh
 

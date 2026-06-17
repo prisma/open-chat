@@ -7,15 +7,17 @@ import {
   sendMessageSchema,
   type MessageEvent,
   type MessageEventInput,
-  type WordTiming,
+  type UsageSummary,
 } from "../../shared/contracts";
 import {
   materializeMessages,
   stalledMessages,
 } from "../../shared/messages";
+import { splitCompletePcmFrames } from "../../shared/pcm";
 import { db } from "../../prisma/db";
 import {
   assertMethod,
+  HttpError,
   json,
   parseJson,
   requireUser,
@@ -23,12 +25,17 @@ import {
 } from "../http";
 import {
   modelCapabilities,
+  streamSpeech,
   streamChatCompletion,
+  type SpeechFormat,
   type WireContentPart,
   type WireMessage,
 } from "../openrouter";
 import { wavFromPcm16 } from "../audio";
-import { estimateWordTimings } from "../audio-timings";
+import {
+  AudioReadAlongBuilder,
+  type AudioReadAlongOutput,
+} from "../audio-readalong";
 import { waitUntil } from "../compute";
 import { storeContent } from "../content";
 import { thumbnailFromDataUrl } from "../images";
@@ -40,18 +47,25 @@ import {
 import {
   assertWithinUsageLimit,
   recordUsage,
+  summarizeSpeechUsage,
   summarizeUsage,
 } from "../usage";
 import { requireOwnedChat } from "./chats";
 
 const encoder = new TextEncoder();
-const PCM_SAMPLE_RATE = 24_000;
-const PCM_BYTES_PER_SAMPLE = 2;
+const PCM_EVENT_LIMIT_BYTES = 12 * 1024 * 1024;
+
+type GenerationUser = {
+  id: string;
+  isAnonymous?: boolean | null | undefined;
+};
 
 // Voice notes are transcribed out-of-band by a cheap audio-in model and
 // the text backfilled onto the user message — chat completions never
 // return a transcript of *input* audio, only of generated speech.
 const TRANSCRIBE_MODEL = "google/gemini-2.5-flash-lite";
+const TRANSCRIBE_PROMPT =
+  "Transcribe the attached audio verbatim. Reply with only the transcript text.";
 
 function newEvent(event: MessageEventInput): MessageEvent {
   return {
@@ -67,8 +81,17 @@ function createChatTitle(prompt: string) {
   return `${compact.slice(0, 53)}...`;
 }
 
-function pcmBytesToMs(bytes: number) {
-  return Math.round((bytes / PCM_BYTES_PER_SAMPLE / PCM_SAMPLE_RATE) * 1000);
+async function recordUserUsage(
+  user: GenerationUser,
+  usage: UsageSummary,
+) {
+  await recordUsage(
+    {
+      id: user.id,
+      isAnonymous: user.isAnonymous,
+    },
+    usage,
+  );
 }
 
 export async function getMessages(request: Request, chatId: string) {
@@ -227,6 +250,136 @@ function toOpenRouterMessages(
     });
 }
 
+function speechAudioDataUrl(
+  format: SpeechFormat,
+  audioBytes: Uint8Array,
+  sampleRate: number,
+  channels: number,
+) {
+  if (format === "pcm") {
+    return `data:audio/wav;base64,${Buffer.from(
+      wavFromPcm16(audioBytes, sampleRate, channels),
+    ).toString("base64")}`;
+  }
+
+  const mime = format === "wav" ? "audio/wav" : "audio/mp3";
+  return `data:${mime};base64,${Buffer.from(audioBytes).toString("base64")}`;
+}
+
+async function runSpeechGeneration({
+  user,
+  chatId,
+  assistantMessageId,
+  model,
+  text,
+}: {
+  user: GenerationUser;
+  chatId: string;
+  assistantMessageId: string;
+  model: string;
+  text: string;
+}) {
+  await appendMessageEvent(
+    user.id,
+    chatId,
+    newEvent({
+      type: "message.delta",
+      chatId,
+      messageId: assistantMessageId,
+      role: "assistant",
+      text,
+      model,
+    }),
+  );
+
+  let format: SpeechFormat = "pcm";
+  let sampleRate = 24_000;
+  let channels = 1;
+  let pcmRemainder = Buffer.alloc(0);
+  const containerChunks: Array<Buffer> = [];
+  const pcmChunks: Array<Buffer> = [];
+
+  for await (const delta of streamSpeech({ model, text })) {
+    if (delta.type === "metadata") {
+      format = delta.format;
+      sampleRate = delta.sampleRate;
+      channels = delta.channels;
+      pcmRemainder = Buffer.alloc(0);
+      continue;
+    }
+
+    const chunk = Buffer.from(delta.bytes);
+    if (format !== "pcm") {
+      containerChunks.push(chunk);
+      continue;
+    }
+
+    const split = splitCompletePcmFrames(pcmRemainder, chunk, channels * 2);
+    pcmRemainder = Buffer.from(split.remainder);
+    if (!split.complete.length) continue;
+
+    const liveChunk = Buffer.from(split.complete);
+    pcmChunks.push(liveChunk);
+    await appendMessageEvent(
+      user.id,
+      chatId,
+      newEvent({
+        type: "message.audio.delta",
+        chatId,
+        messageId: assistantMessageId,
+        role: "assistant",
+        audio: liveChunk.toString("base64"),
+        sampleRate,
+        channels,
+        model,
+      }),
+    );
+  }
+
+  const audioBytes = Buffer.concat(
+    format === "pcm" ? pcmChunks : containerChunks,
+  );
+  if (!audioBytes.length) {
+    throw new Error("Speech model returned no audio");
+  }
+
+  const audioId = await storeContent(
+    speechAudioDataUrl(format, audioBytes, sampleRate, channels),
+    user.id,
+  );
+  await appendMessageEvent(
+    user.id,
+    chatId,
+    newEvent({
+      type: "message.audio",
+      chatId,
+      messageId: assistantMessageId,
+      role: "assistant",
+      audio: { id: audioId },
+      model,
+    }),
+  );
+
+  const usageSummary = await summarizeSpeechUsage(model, text);
+  await appendMessageEvent(
+    user.id,
+    chatId,
+    newEvent({
+      type: "message.completed",
+      chatId,
+      messageId: assistantMessageId,
+      role: "assistant",
+      model,
+      finishReason: "stop",
+      usage: usageSummary,
+    }),
+  );
+  await recordUserUsage(user, usageSummary);
+  await db.orm.Chat.where({ id: chatId }).update({
+    updatedAt: new Date(),
+  });
+}
+
 export async function sendMessage(request: Request, chatId: string) {
   assertMethod(request, ["POST"]);
   const user = await requireUser(request);
@@ -234,6 +387,16 @@ export async function sendMessage(request: Request, chatId: string) {
   await assertWithinUsageLimit(user);
   const input = sendMessageSchema.parse(await parseJson(request));
   const model = input.model ?? chat.model;
+  const capabilities = await modelCapabilities(model);
+
+  if (capabilities.outputsSpeech && !capabilities.outputsText) {
+    if (!input.text.trim()) {
+      throw new HttpError(400, "TTS models need text to speak.");
+    }
+    if (input.images?.length || input.audio) {
+      throw new HttpError(400, "TTS models only accept text input.");
+    }
+  }
 
   if (model !== chat.model) {
     await db.orm.Chat.where({ id: chat.id }).update({ model });
@@ -300,7 +463,6 @@ export async function sendMessage(request: Request, chatId: string) {
     updatedAt: new Date(),
   });
 
-  const capabilities = await modelCapabilities(model);
   const { events } = await loadAllMessageEvents(user.id, chat.id);
   const messages = toOpenRouterMessages(events, {
     currentAudio: wireAudio,
@@ -313,6 +475,17 @@ export async function sendMessage(request: Request, chatId: string) {
   // model stream freezes mid-answer.
   const generation = (async () => {
     try {
+      if (capabilities.outputsSpeech && !capabilities.outputsText) {
+        await runSpeechGeneration({
+          user,
+          chatId: chat.id,
+          assistantMessageId,
+          model,
+          text: input.text,
+        });
+        return;
+      }
+
       const stream = streamChatCompletion({
         model,
         messages,
@@ -325,50 +498,55 @@ export async function sendMessage(request: Request, chatId: string) {
       // collected here; the completed answer is assembled into a WAV in
       // the content store, which replay uses instead of the chunks.
       const pcmChunks: Array<Buffer> = [];
-      let pcmBytes = 0;
-      const PCM_EVENT_LIMIT = 12 * 1024 * 1024;
-      // The reply text, accumulated for OpenRouter-derived read-along
-      // timings. Transcript fragments and audio chunks do not always arrive
-      // on the same SSE line, so short pending spans are paired as soon as
-      // both sides are available.
-      let spokenText = "";
-      let pendingText = "";
-      let pendingTextOffset = 0;
-      let pendingAudioStartMs: number | undefined;
-      let pendingAudioEndMs: number | undefined;
-      let lastTimingEndMs = 0;
-      const spokenTimings: Array<WordTiming> = [];
+      let livePcmBytes = 0;
+      const readAlong = new AudioReadAlongBuilder();
 
-      const appendPendingTimings = async () => {
-        if (!pendingText) return;
-        if (pendingAudioEndMs === undefined) return;
-
-        const startMs = pendingAudioStartMs ?? lastTimingEndMs;
-        const timings = estimateWordTimings(pendingText, {
-          charOffset: pendingTextOffset,
-          startMs,
-          endMs: Math.max(startMs + 1, pendingAudioEndMs),
-        });
-        pendingText = "";
-        pendingTextOffset = spokenText.length;
-        pendingAudioStartMs = undefined;
-        pendingAudioEndMs = undefined;
-        if (!timings.length) return;
-
-        spokenTimings.push(...timings);
-        lastTimingEndMs = timings.at(-1)?.[3] ?? lastTimingEndMs;
-        await appendMessageEvent(
-          user.id,
-          chat.id,
-          newEvent({
-            type: "message.audio.timing",
-            chatId: chat.id,
-            messageId: assistantMessageId,
-            role: "assistant",
-            timings,
-            model,
-          }),
-        );
+      const appendReadAlongOutputs = async (
+        outputs: Array<AudioReadAlongOutput>,
+      ) => {
+        for (const output of outputs) {
+          if (output.type === "text") {
+            await appendMessageEvent(
+              user.id,
+              chat.id,
+              newEvent({
+                type: "message.delta",
+                chatId: chat.id,
+                messageId: assistantMessageId,
+                role: "assistant",
+                text: output.text,
+                model,
+              }),
+            );
+          } else if (output.type === "timing") {
+            await appendMessageEvent(
+              user.id,
+              chat.id,
+              newEvent({
+                type: "message.audio.timing",
+                chatId: chat.id,
+                messageId: assistantMessageId,
+                role: "assistant",
+                timings: output.timings,
+                ...(output.spans?.length ? { spans: output.spans } : {}),
+                model,
+              }),
+            );
+          } else {
+            await appendMessageEvent(
+              user.id,
+              chat.id,
+              newEvent({
+                type: "message.audio.delta",
+                chatId: chat.id,
+                messageId: assistantMessageId,
+                role: "assistant",
+                audio: output.audio,
+                model,
+              }),
+            );
+          }
+        }
       };
 
       let finishReason: string | null = null;
@@ -384,23 +562,40 @@ export async function sendMessage(request: Request, chatId: string) {
         if (delta.usage) usage = delta.usage;
         finishReason = delta.finishReason ?? finishReason;
 
-        let audioChunk: Buffer | undefined;
         if (delta.audioChunk) {
-          audioChunk = Buffer.from(delta.audioChunk, "base64");
-          const chunkStartMs = pcmBytesToMs(pcmBytes);
+          const audioChunk = Buffer.from(delta.audioChunk, "base64");
           pcmChunks.push(audioChunk);
-          pcmBytes += audioChunk.length;
-          pendingAudioStartMs ??= chunkStartMs;
-          pendingAudioEndMs = pcmBytesToMs(pcmBytes);
+          livePcmBytes += audioChunk.length;
         }
 
-        // Audio models speak their answer; the transcript fragments are
-        // the message text and stream like ordinary deltas.
-        const text = delta.text ?? delta.audioTranscript;
-        if (text) {
-          if (!pendingText) pendingTextOffset = spokenText.length;
-          pendingText += text;
-          spokenText += text;
+        // For spoken replies, only use the transcript attached to the audio
+        // stream. Plain content deltas are not guaranteed to be synchronized
+        // with the PCM chunk and make read-along highlighting drift.
+        const text = capabilities.outputsAudio ? delta.audioTranscript : delta.text;
+        if (capabilities.outputsAudio) {
+          const outputs: Array<AudioReadAlongOutput> = [];
+          const audioChunk =
+            delta.audioChunk && livePcmBytes <= PCM_EVENT_LIMIT_BYTES
+              ? Buffer.from(delta.audioChunk, "base64")
+              : undefined;
+          if (delta.audioChunk && audioChunk && text) {
+            outputs.push(
+              ...readAlong.addAudioTranscript(
+                delta.audioChunk,
+                audioChunk.length,
+                text,
+              ),
+            );
+          } else {
+            if (delta.audioChunk && audioChunk) {
+              outputs.push(
+                ...readAlong.addAudio(delta.audioChunk, audioChunk.length),
+              );
+            }
+            if (text) outputs.push(...readAlong.addTranscript(text));
+          }
+          if (outputs.length) await appendReadAlongOutputs(outputs);
+        } else if (text) {
           await appendMessageEvent(
             user.id,
             chat.id,
@@ -414,24 +609,6 @@ export async function sendMessage(request: Request, chatId: string) {
             }),
           );
         }
-
-        if (delta.audioChunk) {
-          if (pcmBytes <= PCM_EVENT_LIMIT) {
-            await appendMessageEvent(
-              user.id,
-              chat.id,
-              newEvent({
-                type: "message.audio.delta",
-                chatId: chat.id,
-                messageId: assistantMessageId,
-                role: "assistant",
-                audio: delta.audioChunk,
-                model,
-              }),
-            );
-          }
-        }
-        await appendPendingTimings();
 
         for (const image of delta.images ?? []) {
           // Generated images land here as data URLs; park the original in
@@ -456,11 +633,7 @@ export async function sendMessage(request: Request, chatId: string) {
         }
       }
 
-      if (pendingText && pendingAudioEndMs === undefined && pcmBytes) {
-        pendingAudioStartMs = lastTimingEndMs;
-        pendingAudioEndMs = pcmBytesToMs(pcmBytes);
-      }
-      await appendPendingTimings();
+      await appendReadAlongOutputs(readAlong.finish());
 
       let spokenAudio: { wav: Uint8Array; id: string } | undefined;
       if (pcmChunks.length) {
@@ -477,7 +650,8 @@ export async function sendMessage(request: Request, chatId: string) {
             role: "assistant",
             audio: {
               id: spokenAudio.id,
-              ...(spokenTimings.length ? { timings: spokenTimings } : {}),
+              ...(readAlong.timings.length ? { timings: readAlong.timings } : {}),
+              ...(readAlong.spans.length ? { spans: readAlong.spans } : {}),
             },
             model,
           }),
@@ -498,13 +672,7 @@ export async function sendMessage(request: Request, chatId: string) {
           usage: usageSummary,
         }),
       );
-      await recordUsage(
-        {
-          id: user.id,
-          isAnonymous: (user as { isAnonymous?: boolean | null }).isAnonymous,
-        },
-        usageSummary,
-      );
+      await recordUserUsage(user, usageSummary);
       await db.orm.Chat.where({ id: chat.id }).update({
         updatedAt: new Date(),
       });
@@ -537,7 +705,7 @@ export async function sendMessage(request: Request, chatId: string) {
               content: [
                 {
                   type: "text",
-                  text: "Transcribe the attached audio verbatim. Reply with only the transcript text.",
+                  text: TRANSCRIBE_PROMPT,
                 },
                 { type: "input_audio", input_audio: wireAudio },
               ],
@@ -562,12 +730,8 @@ export async function sendMessage(request: Request, chatId: string) {
               model,
             }),
           );
-          await recordUsage(
-            {
-              id: user.id,
-              isAnonymous: (user as { isAnonymous?: boolean | null })
-                .isAnonymous,
-            },
+          await recordUserUsage(
+            user,
             await summarizeUsage(TRANSCRIBE_MODEL, usage),
           );
         }

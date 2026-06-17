@@ -18,6 +18,11 @@ import { checkpointsCollection, updateUi } from "../db";
 import { copyToClipboard, cx, formatTime, modelShortName } from "../format";
 import { imageFullSrc, imageThumbSrc } from "../images";
 import { MessageMarkdown } from "../markdown";
+import {
+  readAlongActiveRange,
+  readAlongSegments,
+  type ReadAlongRange,
+} from "../readalong";
 import { LogoMark } from "./LogoMark";
 
 // A stored voice note or spoken reply, played through the content proxy.
@@ -42,62 +47,52 @@ function MessageAudioPlayer({
   );
 }
 
-function wordAt(timings: Array<WordTiming>, currentMs: number) {
-  const ms = currentMs + 80;
-  let lo = 0;
-  let hi = timings.length - 1;
-  let found = -1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (timings[mid]![2] <= ms) {
-      found = mid;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
-    }
-  }
-  return found;
-}
-
-// A spoken reply with word timings: live speech follows the AudioContext
+// A spoken reply with chunk timings: live speech follows the AudioContext
 // cursor stored in TanStack DB, while replay follows the <audio> element.
-// Clicking a word seeks the stored WAV once it exists.
+// OpenRouter gives each audio chunk an associated transcript fragment; those
+// chunk spans are the only reliable read-along unit we have.
 function SpokenText({
   text,
   audio,
   timings,
+  spans,
   liveMs,
 }: {
   text: string;
   audio: MessageAudio | undefined;
   timings: Array<WordTiming>;
+  spans: Array<WordTiming> | undefined;
   liveMs: number | undefined;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [wordIndex, setWordIndex] = useState(-1);
-  const activeWord = liveMs !== undefined ? wordAt(timings, liveMs) : wordIndex;
+  const pointerDownRef = useRef<{ x: number; y: number } | undefined>(
+    undefined,
+  );
+  const [activeReplayRange, setActiveReplayRange] = useState<ReadAlongRange>({
+    start: -1,
+    end: -1,
+  });
+  const highlightTimings = spans?.length ? spans : timings;
+  const activeRange =
+    liveMs !== undefined
+      ? readAlongActiveRange(text, highlightTimings, liveMs)
+      : activeReplayRange;
 
-  const segments = useMemo(() => {
-    const out: Array<{ text: string; word?: number }> = [];
-    let cursor = 0;
-    timings.forEach(([start, end], i) => {
-      if (start > cursor) out.push({ text: text.slice(cursor, start) });
-      out.push({ text: text.slice(start, end), word: i });
-      cursor = end;
-    });
-    if (cursor < text.length) out.push({ text: text.slice(cursor) });
-    return out;
-  }, [text, timings]);
+  const segments = useMemo(
+    () => readAlongSegments(text, highlightTimings),
+    [text, highlightTimings],
+  );
 
   useEffect(() => {
     const element = audioRef.current;
-    if (!element || !timings.length || liveMs !== undefined) return;
+    if (!element || !highlightTimings.length || liveMs !== undefined) return;
     let raf = 0;
 
-    const currentWord = () => wordAt(timings, element.currentTime * 1000);
+    const currentSegment = () =>
+      readAlongActiveRange(text, highlightTimings, element.currentTime * 1000);
 
     const tick = () => {
-      setWordIndex(currentWord());
+      setActiveReplayRange(currentSegment());
       raf = requestAnimationFrame(tick);
     };
     const start = () => {
@@ -106,11 +101,11 @@ function SpokenText({
     };
     const stop = () => cancelAnimationFrame(raf);
     const seeked = () => {
-      if (element.paused) setWordIndex(currentWord());
+      if (element.paused) setActiveReplayRange(currentSegment());
     };
     const ended = () => {
       stop();
-      setWordIndex(-1);
+      setActiveReplayRange({ start: -1, end: -1 });
     };
 
     element.addEventListener("play", start);
@@ -124,37 +119,72 @@ function SpokenText({
       element.removeEventListener("seeked", seeked);
       element.removeEventListener("ended", ended);
     };
-  }, [timings, liveMs]);
+  }, [highlightTimings, liveMs, text]);
 
-  function seekTo(word: number) {
+  function seekTo(index: number) {
     const element = audioRef.current;
-    const timing = timings[word];
+    const timing = highlightTimings[index];
     if (!element || !timing) return;
     element.currentTime = timing[2] / 1000;
     void element.play();
+  }
+
+  function rememberPointerDown(event: React.PointerEvent<HTMLSpanElement>) {
+    pointerDownRef.current = { x: event.clientX, y: event.clientY };
+  }
+
+  function maybeSeek(
+    event: React.MouseEvent<HTMLSpanElement>,
+    index: number,
+  ) {
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed && selection.toString().trim()) {
+      return;
+    }
+
+    const origin = pointerDownRef.current;
+    if (origin) {
+      const movedX = Math.abs(event.clientX - origin.x);
+      const movedY = Math.abs(event.clientY - origin.y);
+      if (movedX > 4 || movedY > 4) return;
+    }
+
+    seekTo(index);
   }
 
   return (
     <>
       <div className="msg-text msg-spoken">
         {segments.map((segment, key) =>
-          segment.word === undefined ? (
+          segment.index === undefined ? (
             segment.text
-          ) : (
+          ) : (() => {
+            const active =
+              activeRange.start >= 0 &&
+              segment.index >= activeRange.start &&
+              segment.index <= activeRange.end;
+            return (
             <span
               key={key}
               role="presentation"
+              draggable={false}
               className={cx(
                 "spoken-word",
-                segment.word === activeWord && "now",
-                activeWord >= 0 && segment.word > activeWord && "upcoming",
+                active && "now",
+                activeRange.end >= 0 &&
+                  segment.index > activeRange.end &&
+                  "upcoming",
                 audio && "seekable",
               )}
-              onClick={audio ? () => seekTo(segment.word!) : undefined}
+              onPointerDown={audio ? rememberPointerDown : undefined}
+              onClick={
+                audio ? (event) => maybeSeek(event, segment.index!) : undefined
+              }
             >
               {segment.text}
             </span>
-          ),
+            );
+          })(),
         )}
       </div>
       {audio ? (
@@ -163,7 +193,7 @@ function SpokenText({
             ref={audioRef}
             className="msg-audio"
             controls
-            preload="none"
+            preload="metadata"
             src={`/api/content/${audio.id}`}
           />
         </div>
@@ -251,17 +281,19 @@ function MessageView({
   // image-capable model has produced nothing at all.
   const generatingImage =
     streaming && makesImages && !message.text && !message.images?.length;
-  const readAlongTimings =
-    message.spokenTimings?.length
-      ? message.spokenTimings
-      : message.audio?.timings;
-  // Spoken replies with word timings read along with playback; the plain
-  // transcript is literal speech, so word spans replace the markdown pass.
+  const readAlongSpans =
+    message.spokenSpans?.length ? message.spokenSpans : message.audio?.spans;
+  const liveReadAlong = Boolean(message.audioLive);
+  const replayAudio =
+    message.status === "completed" && !liveReadAlong ? message.audio : undefined;
+  // Spoken replies only read along when OpenRouter supplied chunk transcript
+  // spans. Word timings are inferred and too imprecise for this UI.
   const readAlong =
-    readAlongTimings?.length && message.text && (message.audio || message.audioLive)
-      ? readAlongTimings
+    readAlongSpans?.length &&
+    message.text &&
+    (replayAudio || liveReadAlong)
+      ? readAlongSpans
       : undefined;
-  const liveReadAlong = Boolean(streaming && message.audioLive);
 
   return (
     <article
@@ -276,8 +308,9 @@ function MessageView({
         {readAlong ? (
           <SpokenText
             text={message.text}
-            audio={liveReadAlong ? undefined : message.audio}
+            audio={liveReadAlong ? undefined : replayAudio}
             timings={readAlong}
+            spans={readAlongSpans}
             liveMs={liveReadAlong ? message.audioCursorMs : undefined}
           />
         ) : message.text || (streaming && !generatingImage) ? (
@@ -292,14 +325,14 @@ function MessageView({
             <span>Generating image…</span>
           </div>
         ) : null}
-        {streaming && message.audioLive && !message.audio ? (
+        {liveReadAlong && !message.audio ? (
           <div className="audio-live" role="status">
             <AudioLines size={14} aria-hidden />
             <span>Speaking…</span>
           </div>
         ) : null}
         <MessageImages images={message.images} onZoom={onZoom} />
-        {readAlong ? null : <MessageAudioPlayer audio={message.audio} />}
+        {readAlong ? null : <MessageAudioPlayer audio={replayAudio} />}
         {message.status === "error" ? (
           <div className="msg-error" role="alert">
             <AlertCircle size={14} aria-hidden />

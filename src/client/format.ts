@@ -29,6 +29,61 @@ export function modelShortName(modelId: string) {
   return modelId.split("/").pop() ?? modelId;
 }
 
+const PROVIDER_NAMES: Record<string, string> = {
+  anthropic: "Anthropic",
+  amazon: "Amazon",
+  cohere: "Cohere",
+  deepseek: "DeepSeek",
+  google: "Google",
+  meta: "Meta",
+  microsoft: "Microsoft",
+  mistralai: "Mistral",
+  moonshotai: "Moonshot",
+  nvidia: "NVIDIA",
+  openai: "OpenAI",
+  "qwen": "Qwen",
+  "x-ai": "xAI",
+  zyphra: "Zyphra",
+};
+
+const PROVIDER_GLYPHS: Record<string, string> = {
+  anthropic: "✺",
+  amazon: "↗",
+  cohere: "◌",
+  deepseek: "◈",
+  google: "✦",
+  meta: "∞",
+  microsoft: "⊞",
+  mistralai: "⟠",
+  moonshotai: "🌙",
+  nvidia: "◢",
+  openai: "◎",
+  qwen: "◍",
+  "x-ai": "𝕏",
+  zyphra: "🤗",
+};
+
+export function modelProviderSlug(modelId: string) {
+  return modelId.split("/")[0] ?? "";
+}
+
+export function modelProviderName(modelId: string) {
+  const slug = modelProviderSlug(modelId);
+  return (
+    PROVIDER_NAMES[slug] ??
+    slug
+      .split(/[-_]/g)
+      .filter(Boolean)
+      .map((part) => part[0]?.toUpperCase() + part.slice(1))
+      .join(" ")
+  );
+}
+
+export function modelProviderGlyph(modelId: string) {
+  const slug = modelProviderSlug(modelId);
+  return PROVIDER_GLYPHS[slug] ?? (modelProviderName(modelId)[0] ?? "?");
+}
+
 export function formatUsd(microUsd: number, decimals = 2) {
   return `$${(microUsd / 1_000_000).toFixed(decimals)}`;
 }

@@ -83,7 +83,7 @@ Stream entries are JSON events. The routing key is carried in the durable stream
 }
 ```
 
-The client materializes these events into TanStack DB message rows. Assistant messages are inserted on `message.created`, updated incrementally on `message.delta`, `message.audio.delta`, and `message.audio.timing`, then marked complete or failed on terminal events. Audio-output models stream transcript text, PCM chunks, and word timing events through the same durable log; the final `message.audio` event stores the WAV reference for replay.
+The client materializes these events into TanStack DB message rows. Assistant messages are inserted on `message.created`, updated incrementally on `message.delta`, `message.audio.delta`, and `message.audio.timing`, then marked complete or failed on terminal events. Chat-completion audio models stream transcript text, PCM chunks, and timing events through the same durable log; the final `message.audio` event stores the WAV reference for replay.
 
 ## Durable Streaming Path
 
@@ -91,12 +91,14 @@ The client materializes these events into TanStack DB message rows. Assistant me
 2. Bun validates the session and chat ownership.
 3. Bun appends the user message event to Prisma Streams.
 4. Bun creates an assistant message event.
-5. Bun calls OpenRouter with `stream: true`.
+5. Bun calls OpenRouter: `/chat/completions` with `stream: true` for chat models, or `/audio/speech` for TTS-only models.
 6. Each OpenRouter delta is appended to Prisma Streams before it is visible to the UI.
 7. The browser consumes `/api/chats/:id/events` through Bun, which performs authenticated long-poll reads against Prisma Streams using the chat routing key.
 8. The client tracks the last durable offset per chat so refresh/reconnect resumes without losing tokens.
 
-For audio-output models, OpenRouter's streamed transcript and PCM chunks are paired into `message.audio.timing` events as the response arrives. The browser plays `message.audio.delta` chunks live and stores the live playback cursor in TanStack DB message rows, so read-along highlighting is driven by the same state layer as the rest of the UI. No separate transcription provider is required.
+For chat-completion audio models, OpenRouter's streamed transcript and PCM chunks are paired into `message.audio.timing` events as the response arrives. The browser plays `message.audio.delta` chunks live and stores the live playback cursor in TanStack DB message rows, so read-along highlighting is driven by the same state layer as the rest of the UI. No separate transcription provider is required.
+
+For OpenRouter `speech` models, the selected model is a TTS endpoint rather than a chat model. The app lists these under a separate TTS selector category, synthesizes the submitted text through `/api/v1/audio/speech`, stores the final audio as `message.audio`, and streams live `message.audio.delta` events only when OpenRouter returns PCM. MP3-only TTS responses are stored for replay after the speech request completes. These endpoints do not return timing metadata, so read-along highlighting is reserved for chat-completion audio models.
 
 The SSE proxy emits heartbeats during idle long-poll cycles and the Bun server uses a longer `idleTimeout` so durable streams stay connected while waiting for the next event.
 
@@ -149,4 +151,4 @@ During verification, Prisma Dev reported Postgres on `localhost:51297` and Strea
 - Bun full-stack dev server: https://bun.sh/docs/bundler/fullstack
 - TanStack DB overview and query collections: https://tanstack.com/db/latest/docs/overview
 - TanStack DB local-only collections: https://tanstack.com/db/latest/docs/collections/local-only-collection
-- OpenRouter TypeScript SDK and streaming: https://openrouter.ai/docs/client-sdks/typescript/overview
+- OpenRouter API, streaming, and multimodal guides: https://openrouter.ai/docs

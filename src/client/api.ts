@@ -7,6 +7,13 @@ import type {
 } from "../shared/contracts";
 import type { TopupQuote } from "../shared/billing";
 
+type SendMessageInput = {
+  text: string;
+  model?: string;
+  images?: Array<{ full: string; thumb: string }>;
+  audio?: string;
+};
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,
@@ -49,7 +56,7 @@ export const api = {
       requestJson<{ messages: Array<ChatMessage>; offset: string }>(
         `/api/chats/${encodeURIComponent(chatId)}/history`,
       ),
-    send: (chatId: string, input: { text: string; model?: string; images?: Array<{ full: string; thumb: string }>; audio?: string }) =>
+    send: (chatId: string, input: SendMessageInput) =>
       requestJson<{ userMessageId: string; assistantMessageId: string }>(
         `/api/chats/${encodeURIComponent(chatId)}/messages`,
         {
@@ -59,7 +66,7 @@ export const api = {
       ),
   },
   models: {
-    list: () => requestJson<Array<ModelDto>>("/api/models"),
+    list: () => requestJson<Array<ModelDto>>("/api/models", { cache: "no-store" }),
   },
   usage: {
     get: () => requestJson<UsageDto>("/api/usage"),
@@ -82,4 +89,3 @@ export const api = {
       ),
   },
 };
-

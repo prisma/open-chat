@@ -998,6 +998,13 @@ textarea {
   max-width: 60%;
 }
 
+.model-chip-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .model-chip span {
   white-space: nowrap;
   overflow: hidden;
@@ -1091,9 +1098,62 @@ textarea {
   background: var(--surface-2);
 }
 
+.model-option.disabled {
+  cursor: default;
+  opacity: 0.88;
+}
+
+.model-option.disabled:hover {
+  background: transparent;
+}
+
+.model-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 1;
+}
+
+.model-provider-glyph {
+  width: 19px;
+  height: 19px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.model-provider-glyph.chip {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  font-size: 9px;
+}
+
+.model-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .model-option .model-name {
   font-size: 12.5px;
   color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.model-note {
+  font-size: 11px;
+  color: var(--text-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1117,6 +1177,25 @@ textarea {
   padding: 12px 10px;
   font-size: 12.5px;
   color: var(--text-3);
+}
+
+.model-section-label {
+  padding: 10px 10px 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.model-endpoint-tag {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-3);
+  padding: 3px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
 }
 
 /* ---------- Auth ---------- */
@@ -1522,6 +1601,7 @@ textarea {
 
 .model-filters {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
@@ -2318,8 +2398,8 @@ textarea {
   text-align: right;
 }
 
-/* Read-along: spoken replies highlight each word as it is voiced. The
-   transcript is plain speech, rendered as word spans over pre-wrap text. */
+/* Read-along: spoken replies highlight a trailing window of exact
+   audio/transcript spans over pre-wrap text. */
 .msg-spoken {
   white-space: pre-wrap;
   line-height: 1.7;

@@ -35,7 +35,10 @@ function materializeEvent(event: DurableMessageEvent) {
   // Spoken audio plays as it arrives; the chunk itself never enters the
   // message state (replay uses the stored WAV referenced by message.audio).
   if (event.type === "message.audio.delta") {
-    enqueueLiveAudio(event.messageId, event.audio);
+    enqueueLiveAudio(event.messageId, event.audio, {
+      sampleRate: event.sampleRate,
+      channels: event.channels,
+    });
   }
 
   const current = messagesCollection.get(event.messageId);

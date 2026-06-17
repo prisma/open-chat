@@ -29,7 +29,7 @@ import {
   updateUi,
   usageCollection,
 } from "../db";
-import { modelShortName } from "../format";
+import { modelProviderGlyph, modelShortName } from "../format";
 
 const MAX_ATTACHMENTS = 4;
 
@@ -49,12 +49,42 @@ function modelSpeaks(model: ModelDto) {
   return model.outputModalities.includes("audio");
 }
 
+function modelSynthesizesSpeech(model: ModelDto) {
+  return model.outputModalities.includes("speech");
+}
+
+function modelIsDedicatedTts(model: ModelDto) {
+  return modelSynthesizesSpeech(model) && !model.outputModalities.includes("text");
+}
+
+function modelTranscribes(model: ModelDto) {
+  return model.outputModalities.includes("transcription");
+}
+
+function modelUsableInChat(model: ModelDto) {
+  return (
+    model.inputModalities.includes("text") &&
+    (model.outputModalities.includes("text") ||
+      model.outputModalities.includes("image") ||
+      model.outputModalities.includes("audio") ||
+      model.outputModalities.includes("speech"))
+  );
+}
+
+function endpointOnlyReason(model: ModelDto) {
+  if (modelTranscribes(model)) {
+    return "Uses /audio/transcriptions, not chat completions";
+  }
+  return undefined;
+}
+
 const CAPABILITY_FILTERS = [
   { key: "all", label: "All" },
   { key: "vision", label: "Vision" },
   { key: "image-out", label: "Image out" },
   { key: "audio-in", label: "Audio in" },
   { key: "audio-out", label: "Audio out" },
+  { key: "tts", label: "TTS" },
 ] as const;
 
 function ModelPopover({
@@ -69,31 +99,47 @@ function ModelPopover({
 
   const filtered = useMemo(() => {
     const query = ui.modelSearch.trim().toLowerCase();
-    return models
-      .filter((model) => {
-        // Everything that can chat: text in, and text/image/audio out.
-        const usable =
-          model.inputModalities.includes("text") &&
-          (model.outputModalities.includes("text") ||
-            model.outputModalities.includes("image") ||
-            model.outputModalities.includes("audio"));
-        const capability =
-          ui.modelFilter === "vision"
-            ? modelSeesImages(model)
-            : ui.modelFilter === "image-out"
-              ? modelMakesImages(model)
-              : ui.modelFilter === "audio-in"
-                ? modelHearsAudio(model)
-                : ui.modelFilter === "audio-out"
-                  ? modelSpeaks(model)
+    const supported: Array<ModelDto> = [];
+    const endpointOnly: Array<{ model: ModelDto; reason: string }> = [];
+
+    for (const model of models) {
+      const capability =
+        ui.modelFilter === "vision"
+          ? modelSeesImages(model)
+          : ui.modelFilter === "image-out"
+            ? modelMakesImages(model)
+            : ui.modelFilter === "audio-in"
+              ? modelHearsAudio(model)
+              : ui.modelFilter === "audio-out"
+                ? modelSpeaks(model)
+                : ui.modelFilter === "tts"
+                  ? modelIsDedicatedTts(model)
                   : true;
-        const matches =
-          !query ||
-          model.id.toLowerCase().includes(query) ||
-          model.name.toLowerCase().includes(query);
-        return usable && capability && matches;
-      })
-      .slice(0, 100);
+      const matches =
+        !query ||
+        model.id.toLowerCase().includes(query) ||
+        model.name.toLowerCase().includes(query);
+      if (!capability || !matches) continue;
+
+      if (modelUsableInChat(model)) {
+        supported.push(model);
+        continue;
+      }
+
+      const reason = endpointOnlyReason(model);
+      if (reason) endpointOnly.push({ model, reason });
+    }
+
+    return {
+      supported: supported.slice(0, 100),
+      endpointOnly:
+        query ||
+        ui.modelFilter === "audio-in" ||
+        ui.modelFilter === "audio-out" ||
+        ui.modelFilter === "tts"
+          ? endpointOnly.slice(0, 24)
+          : [],
+    };
   }, [models, ui.modelSearch, ui.modelFilter]);
 
   useEffect(() => {
@@ -161,8 +207,8 @@ function ModelPopover({
         ))}
       </div>
       <div className="model-list">
-        {filtered.length ? (
-          filtered.map((model) => (
+        {filtered.supported.length ? (
+          filtered.supported.map((model) => (
             <button
               className="model-option"
               type="button"
@@ -174,7 +220,19 @@ function ModelPopover({
                 })
               }
             >
-              <span className="model-name">{model.name}</span>
+              <span className="model-main">
+                <span className="model-provider-glyph" aria-hidden>
+                  {modelProviderGlyph(model.id)}
+                </span>
+                {modelIsDedicatedTts(model) ? (
+                  <span className="model-copy">
+                    <span className="model-name">{model.name}</span>
+                    <span className="model-note">Reads submitted text aloud</span>
+                  </span>
+                ) : (
+                  <span className="model-name">{model.name}</span>
+                )}
+              </span>
               <span className="model-badges" aria-hidden>
                 {modelSeesImages(model) ? (
                   <span className="model-badge" title="Understands images">
@@ -196,6 +254,11 @@ function ModelPopover({
                     <Volume2 size={12} />
                   </span>
                 ) : null}
+                {modelIsDedicatedTts(model) ? (
+                  <span className="model-badge" title="Text to speech">
+                    <Volume2 size={12} />
+                  </span>
+                ) : null}
               </span>
               {model.id === ui.selectedModel ? (
                 <Check className="selected-check" size={14} aria-hidden />
@@ -205,8 +268,45 @@ function ModelPopover({
             </button>
           ))
         ) : (
-          <div className="model-empty">No models match your search.</div>
+          <div className="model-empty">
+            {filtered.endpointOnly.length
+              ? "No chat models match this search."
+              : "No models match your search."}
+          </div>
         )}
+        {filtered.endpointOnly.length ? (
+          <>
+            <div className="model-section-label">Endpoint-only on OpenRouter</div>
+            {filtered.endpointOnly.map(({ model, reason }) => (
+              <div className="model-option disabled" key={model.id}>
+                <span className="model-main">
+                  <span className="model-provider-glyph" aria-hidden>
+                    {modelProviderGlyph(model.id)}
+                  </span>
+                  <span className="model-copy">
+                    <span className="model-name">{model.name}</span>
+                    <span className="model-note">{reason}</span>
+                  </span>
+                </span>
+                <span className="model-badges" aria-hidden>
+                  {modelHearsAudio(model) ? (
+                    <span className="model-badge" title="Understands audio">
+                      <Mic size={12} />
+                    </span>
+                  ) : null}
+                  {modelSynthesizesSpeech(model) ? (
+                    <span className="model-badge" title="Speech output">
+                      <Volume2 size={12} />
+                    </span>
+                  ) : null}
+                </span>
+                <span className="model-endpoint-tag">
+                  {modelTranscribes(model) ? "STT" : "TTS"}
+                </span>
+              </div>
+            ))}
+          </>
+        ) : null}
       </div>
     </div>
   );
@@ -415,7 +515,12 @@ export function Composer({
               })
             }
           >
-            <span>{modelShortName(ui.selectedModel)}</span>
+            <span className="model-chip-main">
+              <span className="model-provider-glyph chip" aria-hidden>
+                {modelProviderGlyph(ui.selectedModel)}
+              </span>
+              <span>{modelShortName(ui.selectedModel)}</span>
+            </span>
             <ChevronDown size={12} aria-hidden />
           </button>
           <input

@@ -68,6 +68,9 @@ export const messageAudioSchema = z.object({
   id: contentIdSchema,
   transcript: z.string().optional(),
   timings: z.array(wordTimingSchema).max(6_000).optional(),
+  // Chunk/phrase-level spans from the streamed audio transcript. These
+  // line up with the audio much better than guessed per-word boundaries.
+  spans: z.array(wordTimingSchema).max(2_000).optional(),
 });
 
 export type MessageAudio = z.infer<typeof messageAudioSchema>;
@@ -141,11 +144,14 @@ export const messageEventSchema = z.discriminatedUnion("type", [
     type: z.literal("message.audio.delta"),
     role: z.literal("assistant"),
     audio: z.string(),
+    sampleRate: z.number().int().positive().optional(),
+    channels: z.number().int().positive().max(2).optional(),
   }),
   eventBaseSchema.extend({
     type: z.literal("message.audio.timing"),
     role: z.literal("assistant"),
     timings: z.array(wordTimingSchema).min(1).max(1_000),
+    spans: z.array(wordTimingSchema).min(1).max(128).optional(),
   }),
   // Also used to backfill a transcript onto a user voice note after the
   // fact — transcription runs as a separate cheap model call.
@@ -223,6 +229,8 @@ export type ChatMessage = {
   audioCursorMs?: number | undefined;
   /** Word timings gathered while spoken audio streams. */
   spokenTimings?: Array<WordTiming> | undefined;
+  /** Phrase/chunk spans gathered from streamed audio transcript fragments. */
+  spokenSpans?: Array<WordTiming> | undefined;
   status: "streaming" | "completed" | "error";
   model?: string | undefined;
   error?: string | undefined;

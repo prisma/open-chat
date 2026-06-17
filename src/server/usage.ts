@@ -53,9 +53,8 @@ export async function assertWithinUsageLimit(user: SpendUser) {
   );
 }
 
-// OpenRouter streams report `promptTokens`/`completionTokens` (chat
-// completions shape); the SDK's responses shape uses
-// `inputTokens`/`outputTokens`. Accept both.
+// OpenRouter chat streams report `promptTokens`/`completionTokens`; keep
+// accepting `inputTokens`/`outputTokens` so older events still summarize.
 type StreamUsage = {
   inputTokens?: number | undefined;
   outputTokens?: number | undefined;
@@ -90,6 +89,22 @@ export async function summarizeUsage(
   // Round up so we never undercount against the budget.
   const costMicroUsd = Math.max(0, Math.ceil(costUsd * 1_000_000));
   return { inputTokens, outputTokens, costMicroUsd };
+}
+
+export async function summarizeSpeechUsage(
+  model: string,
+  text: string,
+): Promise<UsageSummary> {
+  const inputTokens = text.length;
+  const pricing = await getModelPricing(model).catch(() => undefined);
+  const costUsd = pricing ? inputTokens * pricing.prompt : 0;
+  return {
+    // TTS pricing is per input character. Reuse the existing usage shape so
+    // billing and stats keep one accounting path.
+    inputTokens,
+    outputTokens: 0,
+    costMicroUsd: Math.max(0, Math.ceil(costUsd * 1_000_000)),
+  };
 }
 
 export async function recordUsage(user: SpendUser, usage: UsageSummary) {
