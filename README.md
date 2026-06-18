@@ -103,20 +103,19 @@ The live instance at [oss.chat](https://oss.chat) runs on [Prisma Compute](https
 
 ```bash
 # 1. Sign in and create a project (this also provisions a Prisma Postgres database)
-bunx @prisma/cli@latest auth login
-bunx @prisma/cli@latest project create my-open-chat
+bunx --bun @prisma/cli@latest auth login
+bunx --bun @prisma/cli@latest project create my-open-chat
 
 # 2. Create the tables in the project's primary database
-bunx @prisma/cli@latest database connection create <database-id>   # prints DATABASE_URL
+bunx --bun @prisma/cli@latest database connection create <database-id>   # prints DATABASE_URL
 DATABASE_URL=<that-url> bun run db:init
 
-# 3. Deploy the Streams service (pick any long random key). It runs
-#    @prisma/streams-server — the full Prisma Streams runtime — with R2 as
-#    the durable tier: segments upload continuously, and a fresh instance
-#    rehydrates from the bucket, so chat history survives the platform
-#    replacing the instance (its local disk is ephemeral).
-bunx @prisma/cli@latest app deploy --app Streams \
-  --framework bun --entry src/streams-app/index.ts --http-port 8080 \
+# 3. Deploy the Streams service target from prisma.compute.ts (pick any
+#    long random key). It runs @prisma/streams-server — the full Prisma
+#    Streams runtime — with R2 as the durable tier: segments upload
+#    continuously, and a fresh instance rehydrates from the bucket, so chat
+#    history survives the platform replacing the instance.
+bunx --bun @prisma/cli@latest app deploy streams \
   --env STREAMS_API_KEY=<random-key> \
   --env DURABLE_STREAMS_R2_BUCKET=<bucket-name> \
   --env DURABLE_STREAMS_R2_ACCOUNT_ID=<cloudflare-account-id> \
@@ -124,9 +123,9 @@ bunx @prisma/cli@latest app deploy --app Streams \
   --env DURABLE_STREAMS_R2_SECRET_ACCESS_KEY=<r2-secret> \
   --no-db --prod --yes
 
-# 4. Deploy the chat app, pointing it at the database and the Streams URL from step 3
-bunx @prisma/cli@latest app deploy --app open-chat \
-  --framework bun --entry src/start.ts --http-port 3000 \
+# 4. Deploy the chat app target, pointing it at the database and the
+#    Streams URL from step 3
+bunx --bun @prisma/cli@latest app deploy open-chat \
   --env DATABASE_URL=<that-url> \
   --env STREAMS_URL=<streams-app-url> \
   --env STREAMS_API_KEY=<random-key> \
@@ -135,6 +134,12 @@ bunx @prisma/cli@latest app deploy --app open-chat \
   --env APP_ORIGIN=<chat-app-url> \
   --no-db --prod --yes
 ```
+
+The target names come from [`prisma.compute.ts`](prisma.compute.ts), which
+pins each Compute app's framework, entrypoint, port, build command, and output
+directory. After both apps have their environment variables configured, a bare
+`bunx --bun @prisma/cli@latest app deploy --prod --yes` deploys every target
+in order.
 
 That's it — the CLI builds locally, uploads, and the deployment is live in seconds. Secrets live only in Compute's env config, never in the repo. (On the very first deploy you don't know the app URL yet: deploy once, then set `APP_ORIGIN` to the printed URL and deploy again. Subsequent deploys keep their env vars.)
 
@@ -157,6 +162,8 @@ That's it — the CLI builds locally, uploads, and the deployment is live in sec
 | `bun run db:dev` | Local Prisma Postgres + Streams via `prisma dev` |
 | `bun run db:init` | Create tables from the Prisma Next contract |
 | `bun run db:generate` | Re-emit contract types after editing `contract.prisma` |
+| `bun run build` | Build both Prisma Compute targets |
+| `bun run build:chat` / `bun run build:streams` | Build one deployable target |
 | `bun test` / `bun run typecheck` | Tests and strict TypeScript |
 
 ## Learn more

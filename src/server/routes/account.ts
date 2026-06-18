@@ -60,9 +60,13 @@ export async function getUsage(request: Request) {
 
 export function getConfig(request: Request) {
   assertMethod(request, ["GET"]);
+  const streamsUrl =
+    env.STREAMS_URL || `http://127.0.0.1:${env.STREAMS_PORT}`;
   const dto: ConfigDto = {
     socialProviders: configuredSocialProviders(),
     billingEnabled: Boolean(env.STRIPE_SECRET_KEY),
+    streamsRemote: Boolean(env.STREAMS_URL),
+    streamsOrigin: new URL(streamsUrl).origin,
   };
   return json(dto);
 }

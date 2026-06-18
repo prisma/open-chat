@@ -1,5 +1,0 @@
-{
-  "$schema": "https://pris.ly/schemas/prisma-app-config.v1.json",
-  "buildCommand": "bun run build",
-  "outputDirectory": "."
-}

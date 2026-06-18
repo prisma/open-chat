@@ -24,12 +24,18 @@ process.env.DS_ROOT ??= "/tmp/ds-data";
 // die with the instance. Sealing at least every 5s bounds the window of
 // events that an abrupt instance death can lose.
 process.env.DS_SEGMENT_MAX_INTERVAL_MS ??= "5000";
+// R2 restores and uploads run over the public S3-compatible API. Keep the
+// object-store timeout realistic and let bootstrap validate segment heads in
+// parallel so a cold instance can come up from published R2 state quickly.
+process.env.DS_OBJECTSTORE_TIMEOUT_MS ??= "60000";
+process.env.STREAMS_BOOTSTRAP_HEAD_CONCURRENCY ??= "32";
 
 process.argv.push("--auth-strategy", "api-key");
 // Rehydrate from R2 only when the disk is fresh (new instance). On a warm
 // restart the local WAL may hold rows not yet uploaded; bootstrap clears
 // local state first, so running it unconditionally would drop them.
 if (!existsSync(`${process.env.DS_ROOT}/wal.sqlite`)) {
+  console.log("Prisma Streams bootstrapping local state from R2");
   process.argv.push("--bootstrap-from-r2");
 }
 

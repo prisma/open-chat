@@ -214,6 +214,8 @@ export const topupCheckoutSchema = z.object({
 export type ConfigDto = {
   socialProviders: Array<string>;
   billingEnabled: boolean;
+  streamsRemote: boolean;
+  streamsOrigin: string;
 };
 
 export type ChatMessage = {

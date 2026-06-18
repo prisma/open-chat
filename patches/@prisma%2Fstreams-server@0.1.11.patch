@@ -1,0 +1,157 @@
+diff --git a/src/bootstrap.ts b/src/bootstrap.ts
+index 377fffc5975251fe3c7d2d0593eb156ec16bd599..6ca576d9f284a7ff7b5bdeda096d8bb0250b1e42 100644
+--- a/src/bootstrap.ts
++++ b/src/bootstrap.ts
+@@ -10,7 +10,41 @@ import { dsError } from "./util/ds_error.ts";
+ 
+ type Manifest = Record<string, any>;
+ 
++function envPositiveInt(name: string, fallback: number): number {
++  const raw = process.env[name];
++  if (!raw) return fallback;
++  const value = Number(raw);
++  return Number.isInteger(value) && value > 0 ? value : fallback;
++}
++
++async function mapLimit<T, R>(
++  items: T[],
++  limit: number,
++  mapper: (item: T, index: number) => Promise<R>
++): Promise<R[]> {
++  const results = new Array<R>(items.length);
++  let next = 0;
++  const workers = Array.from(
++    { length: Math.min(Math.max(1, limit), items.length) },
++    async () => {
++      for (;;) {
++        const index = next++;
++        if (index >= items.length) return;
++        results[index] = await mapper(items[index]!, index);
++      }
++    }
++  );
++  await Promise.all(workers);
++  return results;
++}
++
+ export async function bootstrapFromR2(cfg: Config, store: ObjectStore, opts: { clearLocal?: boolean } = {}): Promise<void> {
++  const startedAt = Date.now();
++  const headConcurrency = envPositiveInt("STREAMS_BOOTSTRAP_HEAD_CONCURRENCY", 32);
++  const logEverySegments = envPositiveInt("STREAMS_BOOTSTRAP_LOG_EVERY_SEGMENTS", 100);
++  console.log(
++    `[streams bootstrap] starting R2 restore root=${cfg.rootDir} headConcurrency=${headConcurrency}`
++  );
+   if (opts.clearLocal !== false) {
+     try {
+       rmSync(cfg.dbPath, { force: true });
+@@ -41,6 +75,11 @@ export async function bootstrapFromR2(cfg: Config, store: ObjectStore, opts: { c
+     };
+     const keys = await retry(() => store.list("streams/"), retryOpts);
+     const manifestKeys = keys.filter((k) => k.endsWith("/manifest.json"));
++    console.log(
++      `[streams bootstrap] listed ${keys.length} objects; restoring ${manifestKeys.length} stream manifests`
++    );
++    let restoredStreams = 0;
++    let restoredSegments = 0;
+     for (const mkey of manifestKeys) {
+       const mbytes = await retry(async () => {
+         const data = await store.get(mkey);
+@@ -140,7 +179,10 @@ export async function bootstrapFromR2(cfg: Config, store: ObjectStore, opts: { c
+         manifestHead?.size ?? null
+       );
+ 
+-      for (let i = 0; i < segmentCount; i++) {
++      const segmentRows = await mapLimit(
++        Array.from({ length: segmentCount }, (_, i) => i),
++        headConcurrency,
++        async (i) => {
+         const startOffset = i === 0 ? 0n : segmentOffsets[i - 1];
+         const endOffset = segmentOffsets[i] - 1n;
+         const lastTsMs = segmentLastTs[i] / 1_000_000n;
+@@ -154,7 +196,11 @@ export async function bootstrapFromR2(cfg: Config, store: ObjectStore, opts: { c
+           return h;
+         }, retryOpts);
+         if (!head) throw dsError(`missing segment ${objectKey}`);
+-        db.createSegmentRow({
++          const total = ++restoredSegments;
++          if (total % logEverySegments === 0) {
++            console.log(`[streams bootstrap] restored ${total} segment heads`);
++          }
++          return {
+           segmentId,
+           stream,
+           segmentIndex: i,
+@@ -165,8 +211,25 @@ export async function bootstrapFromR2(cfg: Config, store: ObjectStore, opts: { c
+           payloadBytes: 0n,
+           sizeBytes: head.size,
+           localPath,
++            etag: head.etag,
++          };
++        }
++      );
++
++      for (const row of segmentRows) {
++        db.createSegmentRow({
++          segmentId: row.segmentId,
++          stream: row.stream,
++          segmentIndex: row.segmentIndex,
++          startOffset: row.startOffset,
++          endOffset: row.endOffset,
++          blockCount: row.blockCount,
++          lastAppendMs: row.lastAppendMs,
++          payloadBytes: row.payloadBytes,
++          sizeBytes: row.sizeBytes,
++          localPath: row.localPath,
+         });
+-        db.markSegmentUploaded(segmentId, head.etag, nowMs);
++        db.markSegmentUploaded(row.segmentId, row.etag, nowMs);
+       }
+ 
+       const indexSecretB64 = typeof manifest.index_secret === "string" ? manifest.index_secret : "";
+@@ -349,7 +412,14 @@ export async function bootstrapFromR2(cfg: Config, store: ObjectStore, opts: { c
+         db.upsertSchemaRegistry(stream, new TextDecoder().decode(schemaBytes));
+         db.setSchemaUploadedSizeBytes(stream, schemaBytes.byteLength);
+       }
++      restoredStreams++;
++      console.log(
++        `[streams bootstrap] restored stream ${restoredStreams}/${manifestKeys.length} with ${segmentCount} segments`
++      );
+     }
++    console.log(
++      `[streams bootstrap] completed R2 restore streams=${restoredStreams} segments=${restoredSegments} ms=${Date.now() - startedAt}`
++    );
+   } finally {
+     db.close();
+   }
+diff --git a/src/objectstore/r2.ts b/src/objectstore/r2.ts
+index 126c599da7f9a8a7d92129324f3e6e5de1a18604..4278aaa1ca4c563cc311a56f22ac3cc1ac4f20d7 100644
+--- a/src/objectstore/r2.ts
++++ b/src/objectstore/r2.ts
+@@ -197,11 +197,22 @@ export class R2ObjectStore implements ObjectStore {
+     const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
+     const payloadHash = opts.payloadHash ?? EMPTY_SHA256;
+     headers.set("authorization", this.authorization(method, url, headers, payloadHash, amzDate));
+-    return fetch(url, {
+-      method,
+-      headers,
+-      body: opts.body,
+-    });
++    const timeoutMs = Number(process.env.DS_OBJECTSTORE_TIMEOUT_MS ?? "0");
++    const controller =
++      Number.isFinite(timeoutMs) && timeoutMs > 0 ? new AbortController() : null;
++    const timeout = controller
++      ? setTimeout(() => controller.abort("R2 request timed out"), timeoutMs)
++      : null;
++    try {
++      return await fetch(url, {
++        method,
++        headers,
++        body: opts.body,
++        signal: controller?.signal,
++      });
++    } finally {
++      if (timeout) clearTimeout(timeout);
++    }
+   }
+ 
+   private wrapStatus(op: string, key: string, res: Response): never {

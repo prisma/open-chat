@@ -727,10 +727,8 @@ export function TourPage() {
           />
           <Reveal>
             <pre className="tour-code">
-              {"$ bunx @prisma/cli app deploy --app Streams \\\n"}
-              {"    --entry src/streams-app/index.ts --prod\n"}
-              {"$ bunx @prisma/cli app deploy --app open-chat \\\n"}
-              {"    --entry src/start.ts --prod\n\n"}
+              {"$ bunx --bun @prisma/cli app deploy streams --prod\n"}
+              {"$ bunx --bun @prisma/cli app deploy open-chat --prod\n\n"}
               <span className="dim">{"Live in 13.7s  →  https://oss.chat"}</span>
             </pre>
             <p className="tour-caption">
