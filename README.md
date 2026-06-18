@@ -143,6 +143,44 @@ in order.
 
 That's it — the CLI builds locally, uploads, and the deployment is live in seconds. Secrets live only in Compute's env config, never in the repo. (On the very first deploy you don't know the app URL yet: deploy once, then set `APP_ORIGIN` to the printed URL and deploy again. Subsequent deploys keep their env vars.)
 
+### Upgrade the Streams service safely
+
+Prisma Streams acknowledges appends once they are durable in the service's local
+SQLite WAL. R2 durability happens after the background segmenter seals WAL rows
+into segment files and the uploader publishes those segments plus the stream
+manifest. `--bootstrap-from-r2` restores that published R2 state; it does not
+restore a still-local WAL tail.
+
+Before replacing the production Streams instance, make sure recent writes have
+had time to publish:
+
+```bash
+# 1. Deploy chat changes first, but do not intentionally generate writes while
+#    cutting over the Streams service.
+bunx --bun @prisma/cli@latest app deploy open-chat --prod --yes
+
+# 2. Wait at least one segment/upload window after the last write. This app's
+#    Streams wrapper sets DS_SEGMENT_MAX_INTERVAL_MS=5000 and uploader polling
+#    is fast, but 30 seconds is a practical safety window.
+sleep 30
+
+# 3. Deploy Streams. A fresh instance bootstraps from R2 before it starts
+#    listening; logs should end with "completed R2 restore" and
+#    "prisma-streams server listening".
+bunx --bun @prisma/cli@latest app deploy streams --prod --yes
+bunx --bun @prisma/cli@latest app logs --deployment <streams-deployment-id>
+
+# 4. Verify the stable Streams app URL returns 401 rather than "Service not
+#    found"; 401 is expected because the endpoint is bearer-auth protected.
+curl -i https://<streams-app-url>/health
+
+# 5. Reload an existing chat in the browser and confirm the messages replay
+#    with their durable checkmarks.
+```
+
+Keep `STREAMS_URL` pointed at the stable Streams app URL, not a deployment URL.
+That lets the chat server survive Streams redeploys without an env update.
+
 ## Project layout
 
 | Path | What lives there |
