@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "bun --hot src/server/index.ts",
     "start": "bun src/server/index.ts",
-    "build": "bun run build:chat && bun run build:streams",
+    "build": "bun run build:chat && bun run build:streams && bun run build:launcher",
     "build:chat": "rm -rf dist/server && bun build --target=bun --production --outdir=dist/server src/start.ts",
     "build:streams": "rm -rf dist/streams && bun build --target=bun --production --outdir=dist/streams src/streams-app/index.ts",
+    "build:launcher": "rm -rf dist/composer && bun build --target=bun --production --outdir=dist/composer --external './dist/server/start.js' src/composer/start.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "db:generate": "prisma-next contract emit",
@@ -18,6 +19,8 @@
   },
   "dependencies": {
     "@prisma-next/postgres": "^0.13.0",
+    "@prisma/composer": "https://pkg.pr.new/prisma/composer/@prisma/composer@ac1e7b1",
+    "@prisma/composer-prisma-cloud": "https://pkg.pr.new/prisma/composer/@prisma/composer-prisma-cloud@ac1e7b1",
     "@prisma/streams-local": "0.1.11",
     "@prisma/streams-server": "0.1.11",
     "@tanstack/db": "0.6.8",
