@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun --hot src/server/index.ts",
+    "dev:composer": "bun scripts/dev.ts",
     "start": "bun src/server/index.ts",
     "build": "bun run build:chat && bun run build:streams && bun run build:launcher",
     "build:chat": "rm -rf dist/server && bun build --target=bun --production --outdir=dist/server src/start.ts",

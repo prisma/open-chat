@@ -33,7 +33,8 @@
     "prisma.compute.ts",
     "tests",
     "module.ts",
-    "prisma-composer.config.ts"
+    "prisma-composer.config.ts",
+    "scripts"
   ],
   // The streams app imports @prisma/streams-server, which ships raw .ts
   // sources that don't pass this project's compiler settings. The entry is

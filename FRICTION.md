@@ -211,6 +211,128 @@ specifier as written relative to the importing file.
 `*/dist/server/start.js'` glob) — either matches; documented in
 `package.json`'s `build:launcher` script.
 
+## D2 — Local dev loop
+
+### 5. No local-dev harness for a `compute()` node with real dependencies — the deploy env-var wire protocol has to be hand-replicated
+
+**Where hit:** writing `scripts/dev.ts` to run the app through the launcher
+path (`src/composer/start.ts`), which reads `service.load()`/`config()`/`secrets()`.
+
+**Symptom:** those three accessors read a process-local "stash" that only
+`run(address, boot)` populates — and `run()` itself only exists to be called
+by the bootstrap.js a deploy prints
+(`packages/1-prisma-cloud/0-lowering/lowering/src/compute/artifact.ts`:
+`` `import main from "./main.mjs"; await main.run(${address}, () => import("./${appEntry}"));` ``).
+There is no local-dev equivalent of that bootstrap anywhere in the framework
+or its examples. Grepping the whole framework repo for a working call to
+`.run()` on a node with real deps/params turns up nothing — every example's
+entry file only calls `.config()`/`.load()`, and the one example whose
+`scripts/dev.ts` boots a `compute()` node locally
+(`examples/store/scripts/dev.ts`) sidesteps the whole problem: that node
+declares `deps: {}` and is driven through `@prisma/composer/rpc`'s `serve()`,
+which never needs a real env var to be set.
+
+**Cause:** `run()`'s job — deserialize the platform env keyed by the real
+deployment address, then re-stash it address-free — is deploy machinery with
+no local-dev-shaped door into it. To drive a real `compute()` node (deps,
+params, secrets) outside a deploy, the only path is to write the exact env
+vars `target/src/serializer.ts` expects and call `.run()` yourself: one write
+per dependency's connection param (`COMPOSER_<ADDR>_<INPUT>_<NAME>`, the raw
+resolved value), one per service param (same key shape minus the input
+segment, JSON-encoded), and *two* per secret slot (a pointer row
+`COMPOSER_<ADDR>_<SLOT>` naming a platform var, plus that platform var itself
+holding the real value — never the value in the pointer row).
+
+**Workaround used:** `scripts/dev.ts` does exactly that by hand, but built on
+the extension's own exported `configKey()` (`@prisma/composer-prisma-cloud`)
+rather than a re-derived uppercase transform, so the key format can't
+silently drift from whatever `serializer.ts` actually does. Cross-checked
+against `packages/1-prisma-cloud/1-extensions/target/src/__tests__/control-lowering.test.ts`'s
+literal expected keys (e.g. `COMPOSER_INGEST_STRIPEKEY`,
+`COMPOSER_WEB_APPORIGIN`) to confirm the format before trusting it.
+
+**Compounding find:** the address to write these keys under isn't derivable
+from the service declaration (`service.ts`) at all — it's assigned by
+`provision()` in `load-module.ts` (`fullAddress = address === undefined ? id
+: \`${address}.${id}\``), so a root-scope provision's address is its bare
+`id`. `module.ts` provisions the chat service with `id: "chat"`, so the real
+deploy address is `"chat"`, not `""` — nothing in `service.ts`, `start.ts`,
+or any doc comment says so; it only falls out of reading the module-graph
+builder. Using the wrong address (e.g. `""`) would still have worked for this
+script, since it controls both the write side and the `run()` call — but it
+would silently stop mirroring what a real deploy does, and wouldn't have
+caught an address-handling bug if one existed.
+
+**Recommendation:** ship a local-dev entry point for a `compute()` node with
+real deps — something like `service.runLocal(values)` that takes hydrated
+dependency bindings and param/secret values directly (mirroring how
+`serve()` in `@prisma/composer/rpc` sidesteps the env-var channel entirely
+for RPC services) instead of requiring a caller to reconstruct
+`run()`'s deploy-shaped env-var protocol by hand. Short of that, exporting
+the node's real deployment address (or a helper to compute it from a
+module + provision id, matching `load-module.ts`'s logic) so a hand-written
+dev script doesn't have to reverse-engineer it from `load-module.ts`.
+
+### 6. `service.secrets()`'s eager, all-or-nothing resolution forces a placeholder for the one genuine external credential
+
+**Where hit:** wiring `openrouterApiKey` for local dev with "no cloud
+credentials" as a hard requirement.
+
+**Symptom:** `service.secrets()` throws if *any* declared secret slot's
+platform var is unset or empty (`deserializeSecrets` in `serializer.ts`) —
+there's no way to leave one slot unbound and read the rest, and no
+optional-secret declaration. Since `start.ts` calls `service.secrets()`
+before doing anything else, an unset `OPENROUTER_API_KEY` doesn't just break
+chat generation — it would crash the whole process before the HTTP server
+ever starts, taking sign-in and the live-tail SSE path down too, neither of
+which touches OpenRouter.
+
+**Cause:** by design (ADR-0029/Chosen design #8) — a required secret slot
+is meant to fail loudly rather than silently run with a missing credential in
+a *deployed* environment, which is the right default there. Local dev has a
+different, legitimate need this doesn't distinguish: "let me run everything
+that doesn't need this one credential."
+
+**Workaround used:** `scripts/dev.ts` generates a harmless local placeholder
+string for `OPENROUTER_API_KEY` (and prints a warning) when the shell doesn't
+already have one set, so `secrets()` resolves and the app boots. The
+placeholder reaches OpenRouter's real API and fails there
+(`"Missing Authentication header"`, confirmed by driving a message send
+end-to-end) — chat generation fails exactly as expected, while sign-in,
+history, and live tail all work, because none of them read that secret.
+Exporting a real `OPENROUTER_API_KEY` before running the script uses it
+instead (`scripts/dev.ts` prefers whatever's already in the shell's env over
+generating a placeholder).
+
+**Recommendation:** no framework change proposed here — the workaround is
+adequate and the strict-by-default behavior is correct for deploys. Worth
+noting in local-dev-facing docs (the framework's, not just this port's) that
+"missing secret" and "missing *this* secret, on purpose, for local dev" are
+different needs the API doesn't distinguish.
+
+### 7. The `node()` build adapter's static entry means the launcher path can't hot-reload
+
+**Where hit:** `scripts/dev.ts` boots through `src/composer/start.ts`, whose
+last line unconditionally does `await import("../../dist/server/start.js")`
+— the app's own *built* production bundle, not its source.
+
+**Symptom:** `dev:composer` cannot be a fast edit-refresh loop the way `bun
+run dev` (`bun --hot src/server/index.ts`) is — a code change requires
+rerunning `bun run build:chat` (which `scripts/dev.ts` does unconditionally
+on every invocation) before it's reflected.
+
+**Cause:** not really a bug — `start.ts`'s whole point (per its own comment)
+is to import "the app's existing, already-built server entry unchanged," so
+that the dev loop exercises the same artifact a deploy would build, not a
+bypass. A static, pre-built entry point is inherent to that goal; hot reload
+and "prove the deploy-shaped wiring" are different things to optimize for.
+
+**Workaround used:** none needed — `bun run dev` remains the fast loop for
+business-logic iteration (untouched by this dispatch); `dev:composer` is a
+separate, slower loop for proving the topology, rebuilding on every run.
+Recorded because "why doesn't my composer dev loop hot-reload" is a
+predictable point of confusion without this being written down somewhere.
+
 ## Referenced elsewhere
 
 The following are recorded in the slice spec's "Chosen design" and
