@@ -8,59 +8,75 @@ preview of `prisma/composer`'s `main` at `ac1e7b1` (`@prisma/composer` +
 
 ## D1 — Topology scaffold
 
-### 1. `pnPostgres(contract)` has no raw connection-URL accessor
+*Entries #1 and #2 below were rewritten in D1b (2026-07-16) after the
+operator dropped `pnPostgres` for plain `postgres()` on both ends (spec:
+open-chat-port Chosen design #7). Both workarounds they originally described
+are gone from the code; the underlying framework gaps are not fixed, so the
+findings stay, sharpened by having tried the fix.*
 
-**Where hit:** writing the launcher (`src/composer/start.ts`), which needs to
-set `DATABASE_URL` for open-chat's own `src/prisma/db.ts` (`new
-Pool({ connectionString: env.DATABASE_URL })` + its own
-`@prisma-next/postgres/runtime` client — built by app code, not the
-framework).
+### 1. A `pnPostgres` resource cannot satisfy a plain `postgres()` dependency — and the converse is blocked too
 
-**Symptom:** `service.load()`'s `db` binding is a fully-typed Prisma Next
-client (`Client<C>`); nothing on it, or on `service.load()`/`config()`/
-`secrets()`, exposes the connection string that produced it.
+**Where hit:** D1 wired `pnPostgres({ name, contract, config })` provisioning
+a `pnPostgres(contract)` dependency. D1b then tried the shape this port
+actually wants: provision a `pnPostgres` resource (framework-run migrations,
+ADR-0022) but consume it through open-chat's own `pg.Pool` — i.e. a plain
+`postgres()` dependency, since open-chat's `src/prisma/db.ts` builds its own
+client from `{ url }` and does not accept a framework-built typed client.
 
-**Cause:** `pnPostgres(contract)`'s dependency declaration
-(`packages/1-prisma-cloud/1-extensions/target/src/prisma-next.ts`) is:
+**Symptom:** TypeScript rejects it at the `provision()` call site.
+`pnPostgres({ ... })` returns a `ResourceNode<Contract<'prisma-next', PnCmp>>`;
+`postgres()`'s dependency end requires a `Contract<'postgres', PostgresConfig>`.
+The two contracts' `kind` literals (`'prisma-next'` vs `'postgres'`) don't
+match, so assignability fails before `satisfies` is ever reached at Load —
+"framework migrations + my own client" is inexpressible.
 
-```ts
-dependency({
-  type: 'prisma-next',
-  connection: { params: { url: string() }, hydrate: ({ url }) => buildClient(contract, url) },
-  required: contract,
-});
-```
+**Cause:** `Contract<Kind extends string, Cmp>`
+(`packages/0-framework/1-core/core/src/contract.ts`) welds `Kind` into two
+places at once, both using the SAME type parameter as the contract they're
+declared on: the provision-site TypeScript assignability check
+(`ResourceNode<C>` against a dependency's required contract, in `node.ts`),
+and `satisfies(required: Contract<Kind, unknown>)`'s own signature. A
+`prisma-next` database genuinely IS a Postgres database — its `PnCmp` carries
+a `{ url }`-shaped connection underneath the typed client — but nothing in
+`Contract`'s shape lets a `'prisma-next'`-kinded contract declare "I also
+satisfy `'postgres'`". Kind equality is baked into the type itself, not a
+policy `satisfies` chooses, so a cross-kind subtype relation can't be
+expressed at all.
 
-`hydrate` receives `url` but returns only the built client — the raw string
-is discarded. This is deliberate for the common case (ADR-0022: the framework
-constructs the typed client so the app never handles a bare connection
-string), but open-chat's `db.ts` predates Composer and builds its own
-`pg.Pool` + its own separate `@prisma-next/postgres/runtime` client from
-`DATABASE_URL` directly — it does not accept a pre-built client object, and
-changing that is app business logic (out of scope for this port).
+**Also tried, also blocked — the converse:** "provision a `pnPostgres`
+resource but run my own migrations" (skip ADR-0022's framework-run migration)
+is equally inexpressible. `PnPostgresResourceNode`'s `config` field (the
+`prisma-next.config.ts` path) is required on the resource overload's argument
+type — there is no `pnPostgres({ name, contract })` without it. And given a
+`config` anyway, `prismaNextDescriptor`'s lowering
+(`packages/1-prisma-cloud/1-extensions/target/src/descriptors/prisma-next.ts`)
+unconditionally runs `PnMigration(...)` — no flag or resource variant
+provisions the database and connection without migrating it.
 
-**Workaround used:** the raw URL does still land in `process.env` — the
-target's serializer (`serializer.ts`'s `stash()`) writes every dependency
-connection param to an address-free env var
-(`COMPOSER_<INPUT>_<PARAM>`, here `COMPOSER_DB_URL`) *before* `boot()` runs,
-independently of whether anything ever calls `load()`. The launcher reads
-`process.env.COMPOSER_DB_URL` directly. This is an internal, undocumented key
-convention (not a public accessor) — grep-visible in `serializer.ts`'s
-`configKey()`, not in any public type or doc.
+**Workaround used:** neither direction — this port uses plain `postgres()`
+on both ends (`module.ts`'s resource, `service.ts`'s dependency) and keeps
+running open-chat's own `db:init`/`db:push` as an operator step (D3). Per
+ADR-0022 the contract hash is the thing and migrations are only the means, so
+this doesn't need the framework to run them; open-chat gets neither
+framework-run migrations nor the typed client, by design (Chosen design #7)
+— it only ever needed the URL.
 
-**Recommendation:** either (a) add a public accessor for a `pnPostgres`
-dependency's raw connection string (e.g. `pnPostgres.url(contract)` returning
-a `postgres()`-shaped `{ url }` binding alongside the typed-client one), for
-apps that need to build their own client, or (b) document
-`COMPOSER_<INPUT>_<PARAM>` as a supported (if discouraged) escape hatch.
+**Recommendation:** let a `prisma-next` contract's `satisfies` accept a
+`Contract<'postgres', unknown>` too, not just its own kind, when its
+underlying storage genuinely is Postgres — which needs `Kind` widened off
+`satisfies`'s parameter type, not just the value returned. Caution: a naive
+"no required hash → satisfied" rule is wrong — it would let a `pnPostgres`
+resource satisfy an unrelated `s3()`/`streams()` dependency too, since those
+also have no required-hash concept. Any fix has to compare kind-compatibility
+explicitly, not merely "hash present or absent". Not attempted here — a
+`Contract` type change, out of scope for an app port.
 
-### 2. `pnPostgres(contract)`'s `load()` throws — contract-validation failure against the preview's bundled `@prisma-next` toolchain
+### 2. Version skew: framework's bundled `@prisma-next` 0.15.0 vs open-chat's 0.13.0-emitted `contract.json`
 
-**Where hit:** a boot-time smoke test of the launcher (`chatService.run()`
-with fabricated `COMPOSER_*` env vars, see D1 verification), and would have
-hit it for real on first deploy had it not been caught here.
+**Where hit:** D1's boot-time smoke test of the launcher (`chatService.run()`
+with fabricated `COMPOSER_*` env vars) when it still used `pnPostgres`.
 
-**Symptom:**
+**Symptom (as hit under `pnPostgres`, before D1b removed it):**
 
 ```
 ContractValidationError: Contract structural validation failed:
@@ -74,56 +90,50 @@ execution.mutations.defaults[0].ref.namespace must be a string (was missing);
 
 thrown from inside `service.load()`.
 
-**Cause:** version skew. The pkg.pr.new preview's `@prisma/composer-prisma-cloud`
-declares its own `@prisma-next/*` dependencies at `0.15.0`; open-chat is
-pinned to `@prisma-next/postgres@^0.13.0`, and `src/prisma/contract.json` was
-emitted by that 0.13-vintage `prisma-next` CLI. Bun installs both — the
-top-level hoisted `@prisma-next/postgres@0.13.0` (open-chat's own) and a
-*nested* `node_modules/@prisma/composer-prisma-cloud/node_modules/@prisma-next/*@0.15.0`
+**Cause:** the pkg.pr.new preview's `@prisma/composer-prisma-cloud` declares
+its own `@prisma-next/*` dependencies at `0.15.0`; open-chat is pinned to
+`@prisma-next/postgres@^0.13.0`, and `src/prisma/contract.json` was emitted
+by that 0.13-vintage `prisma-next` CLI. Bun installs both — the top-level
+hoisted `@prisma-next/postgres@0.13.0` (open-chat's own) and a *nested*
+`node_modules/@prisma/composer-prisma-cloud/node_modules/@prisma-next/*@0.15.0`
 (composer's own) — because the version ranges don't overlap. When
-`pnPostgres(contract)`'s `hydrate` calls into the *0.15.0* runtime with
+`pnPostgres(contract)`'s `hydrate` called into the *0.15.0* runtime with
 open-chat's *0.13-emitted* `contractJson`, the newer runtime's structural
-validator rejects it: `execution.mutations.defaults[].ref.namespace` is a
-field the 0.13 emitter didn't write.
+validator rejected it: `execution.mutations.defaults[].ref.namespace` is a
+field the 0.13 emitter didn't write. A genuine data-format incompatibility,
+not just a TypeScript nominal-branding annoyance.
 
-This is not just a TypeScript nominal-branding annoyance (see the comment in
-`src/composer/contract.ts` about `AnyPnContract` vs. open-chat's own
-`Contract` type) — it is a genuine data-format incompatibility that crashes
-at runtime.
-
-**Compounding effect:** `hydrateSync` (`packages/0-framework/1-core/core/src/hydrate.ts`)
-hydrates *every* declared dependency in one synchronous pass with no
-per-key laziness or isolation:
+**Compounding effect (also no longer hit, same reason):** `hydrateSync`
+(`packages/0-framework/1-core/core/src/hydrate.ts`) hydrates *every* declared
+dependency in one synchronous pass with no per-key laziness or isolation:
 
 ```ts
 for (const [name, inputNode] of Object.entries(root.inputs)) {
-  deps[name] = inputNode.connection.hydrate(values as never); // throws here for "db"
+  deps[name] = inputNode.connection.hydrate(values as never); // threw here for "db"
 }
 ```
 
-So `db`'s failure poisons the *entire* `load()` call — the launcher cannot
-call `service.load()` even just to read the harmless, trivially-hydrated
-`streams.url` (`durableStreams()`'s hydrate is the identity function).
+So `db`'s failure would have poisoned the *entire* `load()` call — the
+launcher could not have called `service.load()` even just to read the
+harmless, trivially-hydrated `streams.url`.
 
-**Workaround used:** the launcher never calls `service.load()`. Both
-dependency URLs (`db`, `streams`) are read via the same private
-`COMPOSER_<INPUT>_URL` env vars as finding #1 — `stash()` writes them
-regardless of whether `load()` is ever called, so this sidesteps the crash
-entirely. `service.secrets()`/`service.config()` are unaffected (they never
-touch `root.inputs`) and are used normally.
+**Status:** not hit anymore — D1b dropped `pnPostgres` entirely (Chosen
+design #7), so this port never calls into the 0.15.0 runtime with open-chat's
+0.13-emitted contract. Recorded so the incompatibility isn't lost: any future
+port or app that DOES need `pnPostgres`'s typed client will still hit it.
 
 **Recommendation:** (a) real fix — align open-chat's `@prisma-next/*` pins
 with whatever version `@prisma/composer-prisma-cloud` depends on (or vice
-versa) and regenerate `contract.json`/`contract.d.ts`; deferred here as an
-operator-level, whole-app dependency decision, not a topology-wiring one. (b)
-framework-side — `hydrateSync`/`hydrate` failing one input shouldn't prevent
-reading any other already-hydratable input; consider per-key error
-attribution at minimum (the current error gives no indication *which*
-dependency failed without reading the stack). (c) `@prisma-next/postgres`'s
-runtime validator rejecting a same-`schemaVersion` (`"1"`) contract emitted
-two minor versions back is itself worth a `@prisma-next` compat note —
-`contract.json`'s own `schemaVersion` field implies forward compatibility
-within a schema version that didn't hold here.
+versa) and regenerate `contract.json`/`contract.d.ts`; an operator-level,
+whole-app dependency decision, not a topology-wiring one. (b) framework-side
+— `hydrateSync`/`hydrate` failing one input shouldn't prevent reading any
+other already-hydratable input; consider per-key error attribution at
+minimum (the current error gives no indication *which* dependency failed
+without reading the stack). (c) `@prisma-next/postgres`'s runtime validator
+rejecting a same-`schemaVersion` (`"1"`) contract emitted two minor versions
+back is itself worth a `@prisma-next` compat note — `contract.json`'s own
+`schemaVersion` field implies forward compatibility within a schema version
+that didn't hold here.
 
 ### 3. `node()` build adapter's `assemble()` copies a single file — incompatible with a multi-file Bun static-asset build
 
