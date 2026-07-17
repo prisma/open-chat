@@ -395,6 +395,118 @@ inside the entry (not just static sibling reads, as `examples/env-param`'s
 nothing in the docs or the `prisma-composer` skill mentions dynamic imports
 inside a directory-form entry at all.
 
+## D4 — Preview-stage deploy and stage isolation
+
+Framework version under test for this dispatch: same pkg.pr.new preview of
+`prisma/composer`'s `main` at `668c8b0` D3 used — no framework version bump.
+Date: 2026-07-17.
+
+### 9. Correcting an `envParam`'s value after the URL it depends on is known doesn't survive a redeploy — Alchemy sees no diff, so the correction never reaches a running instance
+
+**Where hit:** setting `APP_ORIGIN` on the `preview-d4` stage. The real
+preview URL (`https://iyhpiotsvrlr10zce97gifph.ewr.prisma.build`) isn't known
+until after the chat service's first deploy assigns it — the same
+chicken-and-egg `deploying.md` § CI already documents for a fresh stage's
+first deploy ("CI must export the values... preflight copies missing ones up
+on that first deploy"). What the guide doesn't cover is *correcting* that
+value once you know it.
+
+**Symptom:** deploy #1 (with a placeholder `APP_ORIGIN` in the deploy shell)
+succeeds, preflight fills the platform variable from the placeholder since
+the branch had none yet, and the app is reachable at its real URL. Directly
+`PATCH`ing the platform variable's value via the Management API
+(`/v1/environment-variables/{id}`) to the real URL succeeds (200). Redeploying
+immediately after — same command, same shell env, now with the corrected
+`APP_ORIGIN` — reports `Plan: 39 to noop` and creates nothing. The running
+instance keeps serving the placeholder value; guest sign-in fails with a
+`Set-Cookie` whose `Secure`/origin checks quietly don't match the placeholder
+host.
+
+**Cause.** Two facts compound. First (already known, PRO-211/FT-5227's
+family): a compute deployment's env map is materialized once at
+deployment-create and never re-resolved — confirmed reading
+`packages/1-prisma-cloud/0-lowering/lowering/src/compute/Deployment.ts`'s
+comment on `DeploymentProps.environment`: "the provider never reads this...
+its only job is the Alchemy dependency edge... force a new deployment when
+any upstream value changes." Second, and the actual new finding: **an
+`envParam`'s stored row is a pointer to the platform variable's NAME
+(`APP_ORIGIN`), not its value** (`config-params.md` § Binding a param at
+provision) — and that pointer's *value* (the string `"APP_ORIGIN"`) never
+changes across deploys, regardless of what the real platform value is. Since
+`EnvironmentVariable`'s own value field is "stored encrypted; not readable
+back" (`EnvironmentVariable.ts`), Alchemy has nothing to diff against and
+correctly reports no change — from its point of view nothing about the
+declared graph changed. The one thing that *does* force a new deployment is
+`artifactHash` (a comment on `DeploymentProps` says so explicitly: "part of
+the props so a new build... forces a fresh deployment; a byte-identical
+`artifactPath` alone would diff as a no-op") — but an unmodified rebuild is
+byte-identical (`build:pack`'s tar is deterministic, fixed mtimes, per
+`compute.ts`'s own comment), so even re-running `bun run build && deploy`
+doesn't help.
+
+**Workaround used:** after the `PATCH`, force a genuinely different artifact:
+add a one-line, clearly-marked temporary side-effecting statement to
+`src/composer/start.ts` (a `console.error` — a bare comment risks
+minification stripping it), rebuild, redeploy (this time `chat-deploy`
+correctly shows `updating`/`updated`), then `git checkout --
+src/composer/start.ts` to drop the marker before committing. Verified: guest
+sign-in against the redeployed preview URL returns a `__Secure-` cookie
+scoped to that URL, and chat creation + the SSE `ready` event both work.
+
+**Recommendation:** this is a real gap, not just an inconvenient CLI surface
+— `deploying.md`'s CI section documents the *first*-deploy fill-from-shell
+path but says nothing about correcting a value afterward, and there's no CLI
+affordance for it (no `--force`, no "touch this deployment" command). Two
+independent fixes would close it: (a) let `prisma-composer deploy` accept an
+explicit "redeploy anyway" flag that bypasses the no-op short-circuit for a
+named target, sidestepping the need for a fake artifact change; (b) since the
+whole reason `APP_ORIGIN` needs a second pass is "the value isn't known until
+the first deploy assigns the URL," consider whether the framework could
+resolve and inject the app's own assigned URL as a well-known dependency
+input (the way a database's connection string already flows in) rather than
+requiring the operator to round-trip it through a platform env var by hand.
+
+### 10. Direct-write env var mutations show up correctly in the platform's own class/branch scoping, confirming stage isolation is real, not just believed
+
+**Where hit:** verifying `APP_ORIGIN` and the database were actually isolated
+per stage, per this dispatch's mandate to verify rather than assume.
+
+**Not friction — a clean result worth recording.** Every check came back
+exactly as ADR-0023/0024 predict, with no surprises:
+
+- `GET /v1/projects/{id}/branches` classified `preview-d4` as
+  `"role": "preview"` on its own — the framework never asserts this
+  (`ADR-0024` § Rationale: "the platform's classification... derived from
+  Branch presence, never from a role lookup"), and the platform result
+  matched.
+- The chat service's `database` resource minted a *separate* database row
+  per branch (`db_cmrowto9509yj1adz03twh7bw` on `main`,
+  `db_cmroyr1g80dyw1adzfm3lljef` on `preview-d4`) — confirmed by listing
+  `GET /v1/projects/{id}/databases` and cross-checking `branchId`.
+- `APP_ORIGIN` lives as two entirely separate `environment-variables` rows —
+  one `class: "production"` at the project level (`branchId: null`), one
+  `class: "preview"` scoped to the branch id — and `PATCH`ing the preview row
+  provably left the production row's `updatedAt` untouched.
+- A chat created on the preview URL (`chat_7c6c4442-...`) exists only in the
+  preview database (`psql`, direct connection, confirmed by row count and by
+  id lookup); the two chats already in the production database from D3
+  (`chat_08616685-...`, `chat_dd7c47ca-...`) are absent from the preview
+  database and vice versa.
+
+**One easy way to get this wrong:** the project holds *three* databases per
+branch — the resource named `database` (this port's own schema, what
+`module.ts` provisions), the auto-provisioned default database named after
+the project (`open-chat`, always empty — this port never uses it, see
+gotchas.md "Creating a database with isDefault:true fails"), and
+`storage.db` (the storage module's own). A first attempt at this isolation
+check queried the project's *default* database by mistake (same name as the
+project, easy to reach for) and found it completely empty on both stages —
+which briefly looked like a real bug before re-reading `module.ts` and
+querying the correctly-named `database` resource instead. Recorded because
+"three databases per branch, only one of which your app's migrations ever
+touch" is exactly the kind of thing an operator debugging a "why is
+production empty" alarm would want written down.
+
 ## Referenced elsewhere
 
 The following are recorded in the slice spec's "Chosen design" and
