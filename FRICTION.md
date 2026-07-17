@@ -333,6 +333,68 @@ separate, slower loop for proving the topology, rebuilding on every run.
 Recorded because "why doesn't my composer dev loop hot-reload" is a
 predictable point of confusion without this being written down somewhere.
 
+## D3 — Real cloud deploy
+
+Framework version under test for this dispatch: the pkg.pr.new preview of
+`prisma/composer`'s `main` at `668c8b0` (adds `node()`'s directory form,
+entries #3 and #4 above's blocker).
+
+### 8. The directory form's `dir`/`entry` has to reproduce the exact on-disk nesting a pre-existing dynamic import specifier assumed — "put the referenced files inside dir" isn't enough
+
+**Where hit:** switching `service.ts`'s `build: node(...)` to the directory
+form so the deploy artifact carries `dist/server/` (the app's built server
+plus the client JS/CSS/image siblings its HTML import emits) alongside the
+composer launcher (`dist/composer/start.js`, entry #3's blocker).
+
+**Symptom:** the natural-looking config —
+`node({ module: import.meta.url, dir: "../../dist", entry: "composer/start.js" })`,
+with `dist/` containing `composer/` and `dist/server/` as siblings — fails at
+`bun build` time, not deploy time: changing `start.ts`'s dynamic import from
+`"../../dist/server/start.js"` to the sibling-relative `"../server/start.js"`
+(matching that layout) makes bun's bundler report
+`error: Could not resolve: "../server/start.js"` for a file that plainly
+exists on disk one level up from `dist/composer/`.
+
+**Cause:** bun resolves a dynamic `import()`'s specifier against the
+*source* file's on-disk location at build time (confirmed dist/server does
+exist relative to `dist/composer/`... but the resolution happens against
+`src/composer/start.ts`'s own directory, where no `server/` sibling exists —
+only `dist/server/` two levels up, at the repo root). Having resolved it,
+bun leaves the specifier string untouched in the bundled output — so the
+*same* string then has to resolve correctly again at runtime, relative to
+wherever the entry lands once `dir` is copied into `bundle/`. Entry #4 above
+already found half of this (build-time resolution happens against the
+specifier as written); the other half — that the resolved specifier is
+frozen into the bundle unchanged, so its literal relative-path depth has to
+match in two unrelated locations (the source tree at build time, the copied
+`bundle/` tree at runtime) — only bites once a directory of siblings is
+actually shipped, which single-file `node()` never triggered.
+
+**Workaround used:** left `start.ts`'s import as the original
+`"../../dist/server/start.js"` (unchanged — it already resolves correctly
+against `src/composer/` at build time, two levels up to the repo root and
+back down). Added a `build:pack` script
+(`rm -rf dist/pack && mkdir -p dist/pack/dist && cp -R dist/composer dist/pack/dist/composer && cp -R dist/server dist/pack/dist/server`)
+that reproduces that same two-levels-deep nesting inside a dedicated tree,
+and pointed `dir` at it: `node({ module: import.meta.url, dir: "../../dist/pack", entry: "dist/composer/start.js" })`.
+Verified by resolving the exact specifier against the built `dist/pack` tree
+with `path.resolve` before deploying, and by the live deploy in this
+dispatch: the deployed URL serves both the app shell and a client asset
+fetched from it (`index-<hash>.js`/`.css`, 200, correct content-type), which
+only happens if the whole copied tree — launcher, server, and client
+siblings — arrived and resolves.
+
+**Recommendation:** the building-an-app.md guide's directory-form section
+says to resolve siblings "against `import.meta.url`, not the working
+directory," which is necessary but not sufficient advice for a dynamic
+`import()` specifically — it doesn't warn that the specifier is resolved
+once, at build time, against the *source* module's location, then reused
+unchanged at the *copied* location. A worked example with a dynamic import
+inside the entry (not just static sibling reads, as `examples/env-param`'s
+`Bun.file(new URL(...))` case shows) would have surfaced this faster; today
+nothing in the docs or the `prisma-composer` skill mentions dynamic imports
+inside a directory-form entry at all.
+
 ## Referenced elsewhere
 
 The following are recorded in the slice spec's "Chosen design" and

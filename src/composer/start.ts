@@ -10,6 +10,19 @@
 // then imports the app's existing, already-built server entry unchanged —
 // business logic is not touched (mission: lift the app into Composer without
 // modifying it).
+//
+// The `node()` build adapter's directory form (service.ts) ships this
+// launcher and the built server together as one copied tree. Bun resolves a
+// dynamic import()'s specifier against the SOURCE file's on-disk location at
+// build time (then leaves the string untouched in the bundle) — so the
+// specifier below must exist on disk relative to this file both at build
+// time and, unchanged, relative to wherever the bundle lands at runtime.
+// "../../dist/server/start.js" satisfies both: two levels up from
+// src/composer/ lands at the repo root, matching two levels up from
+// dist/composer/ once built — and `bun run build:pack` (package.json)
+// reproduces that exact nesting (dist/pack/dist/{composer,server}/) inside
+// the tree `dir` ships, so the same string still resolves after deploy
+// copies it verbatim into `bundle/`.
 import service from "./service";
 
 const { db, streams } = service.load();

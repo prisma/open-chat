@@ -31,5 +31,12 @@ export default compute({
     stripeSecretKey: secret(),
     stripeWebhookSecret: secret(),
   },
-  build: node({ module: import.meta.url, entry: "../../dist/composer/start.js" }),
+  // The directory form (node()'s dir/entry pair): `bun run build:pack`
+  // reproduces dist/composer/ and dist/server/ inside dist/pack/dist/, so
+  // dir ships both the launcher and the app's built server (plus the client
+  // JS/CSS/image siblings its HTML import emits) as one tree, at the same
+  // nesting depth start.ts's dynamic import already expects (see start.ts).
+  // The single-file form couldn't express "ship the launcher AND the
+  // server tree it imports" at all.
+  build: node({ module: import.meta.url, dir: "../../dist/pack", entry: "dist/composer/start.js" }),
 });
