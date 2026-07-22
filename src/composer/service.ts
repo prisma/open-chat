@@ -4,19 +4,23 @@
 // it). GitHub/Google OAuth are intentionally not declared here — social
 // sign-in is off in the port topology (spec: open-chat-port Chosen design #8).
 //
-// Postgres is a plain `postgres()` dep, not `pnPostgres()`: its binding is
-// `{ url }`, which is exactly what open-chat's own `src/prisma/db.ts` needs
-// to build its `pg.Pool` (Better Auth shares that pool) — open-chat keeps
-// running its own migrations (spec: open-chat-port Chosen design #7).
+// Postgres is a `pnPostgres(chatData)` dep: its binding is `{ url, client }`
+// with the typed client built lazily on first access (ADR-0040). The
+// launcher reads only `url` — open-chat's own `src/prisma/db.ts` builds its
+// `pg.Pool` from it (Better Auth shares that pool) and the lazy client is
+// never constructed. The contract on the edge is what gets the deploy to run
+// migrations/ against the provisioned database before this service starts.
 import { secret, string } from "@prisma/composer";
 import node from "@prisma/composer/node";
-import { compute, postgres } from "@prisma/composer-prisma-cloud";
+import { compute } from "@prisma/composer-prisma-cloud";
+import { pnPostgres } from "@prisma/composer-prisma-cloud/prisma-next";
 import { durableStreams } from "@prisma/composer-prisma-cloud/streams";
+import { chatData } from "./data";
 
 export default compute({
   name: "chat",
   deps: {
-    db: postgres(),
+    db: pnPostgres(chatData),
     streams: durableStreams(),
   },
   params: {

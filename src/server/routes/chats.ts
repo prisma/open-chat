@@ -32,7 +32,7 @@ function chatDto(chat: {
 }
 
 export async function requireOwnedChat(userId: string, chatId: string) {
-  const chat = await db.orm.Chat.where({ id: chatId, userId }).first();
+  const chat = await db.orm.public.Chat.where({ id: chatId, userId }).first();
 
   if (!chat) {
     throw new HttpError(404, "Chat not found");
@@ -48,7 +48,7 @@ export async function listChats(request: Request) {
   if (request.method === "POST") {
     const input = createChatSchema.parse(await parseJson(request));
     const now = new Date();
-    const chat = await db.orm.Chat.create({
+    const chat = await db.orm.public.Chat.create({
       id: `chat_${crypto.randomUUID()}`,
       userId: user.id,
       title: input.title ?? "New chat",
@@ -60,7 +60,7 @@ export async function listChats(request: Request) {
     return json(chatDto(chat), 201);
   }
 
-  const chats = await db.orm.Chat.where({ userId: user.id })
+  const chats = await db.orm.public.Chat.where({ userId: user.id })
     .orderBy((chat) => chat.updatedAt.desc())
     .all();
 
@@ -73,7 +73,7 @@ export async function updateChat(request: Request, chatId: string) {
 
   if (request.method === "PATCH") {
     const input = renameChatSchema.parse(await parseJson(request));
-    const chat = await db.orm.Chat.where({ id: chatId }).update({
+    const chat = await db.orm.public.Chat.where({ id: chatId }).update({
       title: input.title,
       updatedAt: new Date(),
     });
@@ -84,7 +84,7 @@ export async function updateChat(request: Request, chatId: string) {
   }
 
   if (request.method === "DELETE") {
-    await db.orm.Chat.where({ id: chatId }).delete();
+    await db.orm.public.Chat.where({ id: chatId }).delete();
     return noContent();
   }
 

@@ -71,6 +71,12 @@ also have no required-hash concept. Any fix has to compare kind-compatibility
 explicitly, not merely "hash present or absent". Not attempted here — a
 `Contract` type change, out of scope for an app port.
 
+> **Update (D6):** ADR-0040 dissolved the practical case by widening the
+> binding rather than the kind system: a `pnPostgres` dependency now hydrates
+> to `{ url, client }`, so an app that owns its client declares the
+> contract-carrying dependency and reads `url`. The cross-kind `satisfies`
+> recommendation above was considered and rejected in ADR-0040.
+
 ### 2. Version skew: framework's bundled `@prisma-next` 0.15.0 vs open-chat's 0.13.0-emitted `contract.json`
 
 **Where hit:** D1's boot-time smoke test of the launcher (`chatService.run()`
@@ -121,6 +127,17 @@ harmless, trivially-hydrated `streams.url`.
 design #7), so this port never calls into the 0.15.0 runtime with open-chat's
 0.13-emitted contract. Recorded so the incompatibility isn't lost: any future
 port or app that DOES need `pnPostgres`'s typed client will still hit it.
+
+> **Update (D6):** retired for this port twice over. The binding's client is
+> now lazy (ADR-0040), so a service that only reads `url` never runs the
+> runtime's contract validation — and when validation does fail, it surfaces
+> at the first `client` access attributed to that input instead of failing
+> the whole `load()`. Separately, recommendation (a) was executed: the app's
+> own toolchain moved to `@prisma-next` 0.15 and the contract was re-emitted
+> (operator decision, D6), which also forced the 0.15 runtime's
+> schema-namespaced ORM paths (`db.orm.public.<Model>`) through the app's
+> query call sites. Recommendation (c) — a `@prisma-next` compat note for
+> same-`schemaVersion` rejections — still stands upstream.
 
 **Recommendation:** (a) real fix — align open-chat's `@prisma-next/*` pins
 with whatever version `@prisma/composer-prisma-cloud` depends on (or vice
@@ -566,6 +583,18 @@ alchemy's Cloudflare provider exists.
 
 ### 12. A plain-`postgres()` app has no path to its own provisioned database at deploy — the port's documented "app runs its own migrations" step can't be automated
 
+> **Resolved by framework PR #154 (ADR-0040).** `pnPostgres(contract)`'s
+> binding now carries `{ url, client }` with the typed client built lazily on
+> first access — so "framework-run migrations + my own client" is expressible.
+> The port switched its `database` resource to
+> `pnPostgres({ name, contract, config })` and its dependency to
+> `pnPostgres(chatData)`; the launcher reads `db.url` and never constructs
+> the client. The deploy migrates the database itself (`[database-migrate]`,
+> a `PrismaNext.Migration` resource, in the plan) and the operator step below
+> is gone — verified end to end in D6. Recommendation (a) below (surfacing
+> connection values to the deploy shell) remains open as a general
+> affordance, but this port no longer needs it.
+
 **Where hit:** first request against the fresh D5 deploy — guest sign-in
 500, service logs `ERROR [Better Auth]: relation "user" does not exist`.
 
@@ -599,6 +628,38 @@ from the deploy shell (an outputs command, or a post-deploy hook handed the
 resolved bindings), or (b) a migrations hook on plain `postgres()` — "run
 this command against the resolved URL before the dependent service starts" —
 the deploy already sequences exactly this for `pnPostgres()`.
+
+## D6 — pnPostgres with framework-run migrations (ADR-0040 build)
+
+Framework version under test: pkg.pr.new preview of `prisma/composer` PR
+#154 (`@prisma/composer{,-prisma-cloud}@1909260` — the `{ url, client }`
+lazy binding), swapped to npm `0.2.0-dev.6` once the merge published it. App
+toolchain aligned to `@prisma-next` 0.15; contract re-emitted; migrations
+store regenerated (`migration plan --name init`). Date: 2026-07-22.
+
+### 13. bun cannot install two pkg.pr.new previews where one depends on the other — same-URL dedupe fails
+
+**Where hit:** pinning the PR #154 preview builds of `@prisma/composer` and
+`@prisma/composer-prisma-cloud` for the D6 proof.
+
+**Symptom.** With both packages pinned to their pkg.pr.new URLs,
+`bun install` fails with "failed to resolve" on the `@prisma/composer` URL.
+Each URL installs fine alone.
+
+**Cause.** The preview `composer-prisma-cloud` tarball declares its
+`@prisma/composer` dependency as the same pkg.pr.new URL that also appears
+top-level; bun's resolver refuses the identical URL appearing at both
+levels instead of deduplicating it.
+
+**Workaround.** Suffix the top-level pin with a distinguishing query
+(`…@1909260?dedupe=1`) and add an `overrides` entry mapping
+`@prisma/composer` to that same query-suffixed URL — one hoisted copy
+results. Removed again as soon as an npm version carrying the change
+existed (`0.2.0-dev.6`); this only afflicts the preview-pin workflow.
+
+**Recommendation.** Worth an upstream bun issue if it recurs; for this
+repo's workflow, prefer npm dev releases over pkg.pr.new pairs whenever the
+change is already merged.
 
 ## Referenced elsewhere
 

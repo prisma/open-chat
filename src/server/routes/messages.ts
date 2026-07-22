@@ -375,7 +375,7 @@ async function runSpeechGeneration({
     }),
   );
   await recordUserUsage(user, usageSummary);
-  await db.orm.Chat.where({ id: chatId }).update({
+  await db.orm.public.Chat.where({ id: chatId }).update({
     updatedAt: new Date(),
   });
 }
@@ -399,7 +399,7 @@ export async function sendMessage(request: Request, chatId: string) {
   }
 
   if (model !== chat.model) {
-    await db.orm.Chat.where({ id: chat.id }).update({ model });
+    await db.orm.public.Chat.where({ id: chat.id }).update({ model });
   }
 
   const userMessageId = `msg_${crypto.randomUUID()}`;
@@ -457,7 +457,7 @@ export async function sendMessage(request: Request, chatId: string) {
     chat.title === "New chat"
       ? createChatTitle(input.text || (input.audio ? "Voice message" : "Image message"))
       : chat.title;
-  await db.orm.Chat.where({ id: chat.id }).update({
+  await db.orm.public.Chat.where({ id: chat.id }).update({
     title: renamedTitle,
     model,
     updatedAt: new Date(),
@@ -673,7 +673,7 @@ export async function sendMessage(request: Request, chatId: string) {
         }),
       );
       await recordUserUsage(user, usageSummary);
-      await db.orm.Chat.where({ id: chat.id }).update({
+      await db.orm.public.Chat.where({ id: chat.id }).update({
         updatedAt: new Date(),
       });
     } catch (error) {

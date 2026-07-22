@@ -34,19 +34,19 @@ export function configuredSocialProviders() {
 // chats. Move the chats and replay their durable events into the new
 // user's stream first, so nothing is lost by creating an account.
 async function migrateGuestData(anonymousUserId: string, newUserId: string) {
-  const chats = await db.orm.Chat.where({ userId: anonymousUserId }).all();
+  const chats = await db.orm.public.Chat.where({ userId: anonymousUserId }).all();
 
   for (const chat of chats) {
     const { events } = await loadAllMessageEvents(anonymousUserId, chat.id);
     for (const event of events) {
       await appendMessageEvent(newUserId, chat.id, event);
     }
-    await db.orm.Chat.where({ id: chat.id }).update({ userId: newUserId });
+    await db.orm.public.Chat.where({ id: chat.id }).update({ userId: newUserId });
   }
 
   // Stored images follow their owner, so /api/content keeps serving them
   // after the guest becomes an account.
-  await db.orm.Content.where({ userId: anonymousUserId }).update({
+  await db.orm.public.Content.where({ userId: anonymousUserId }).update({
     userId: newUserId,
   });
 }
