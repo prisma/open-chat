@@ -637,6 +637,13 @@ lazy binding), swapped to npm `0.2.0-dev.6` once the merge published it. App
 toolchain aligned to `@prisma-next` 0.15; contract re-emitted; migrations
 store regenerated (`migration plan --name init`). Date: 2026-07-22.
 
+Same-day follow-up: the framework moved its bundled `@prisma-next` to 0.16
+(`0.2.0-dev.7`), and the app re-aligned as a matched pair — contract
+re-emitted (the 0.16 emit changes the contract format, so the storage hash
+moved and the init migration was regenerated), fresh deploy re-verified with
+`[database-migrate]` on the 0.16 tooling. No CLI or store-format changes; no
+app code touched.
+
 ### 13. bun cannot install two pkg.pr.new previews where one depends on the other — same-URL dedupe fails
 
 **Where hit:** pinning the PR #154 preview builds of `@prisma/composer` and

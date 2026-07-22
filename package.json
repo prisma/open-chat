@@ -22,9 +22,9 @@
     "destroy": "( set -a; . ./.env; . \"${PRISMA_DEPLOY_ENV:?PRISMA_DEPLOY_ENV is required}\"; set +a; bun node_modules/.bin/prisma-composer destroy module.ts --production )"
   },
   "dependencies": {
-    "@prisma-next/postgres": "0.15.0",
-    "@prisma/composer": "0.2.0-dev.6",
-    "@prisma/composer-prisma-cloud": "0.2.0-dev.6",
+    "@prisma-next/postgres": "0.16.0",
+    "@prisma/composer": "0.2.0-dev.7",
+    "@prisma/composer-prisma-cloud": "0.2.0-dev.7",
     "@prisma/streams-local": "0.1.11",
     "@prisma/streams-server": "0.1.11",
     "@tanstack/db": "0.6.8",
@@ -53,7 +53,7 @@
     "@types/react-dom": "19.2.3",
     "playwright": "1.61.0",
     "prisma": "7.8.0",
-    "prisma-next": "0.15.0",
+    "prisma-next": "0.16.0",
     "typescript": "5.9.3"
   },
   "patchedDependencies": {

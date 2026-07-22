@@ -1105,8 +1105,6 @@
               },
               "foreignKeys": [
                 {
-                  "constraint": true,
-                  "index": true,
                   "onDelete": "cascade",
                   "source": {
                     "columns": [
@@ -1172,8 +1170,6 @@
               },
               "foreignKeys": [
                 {
-                  "constraint": true,
-                  "index": true,
                   "onDelete": "cascade",
                   "source": {
                     "columns": [
@@ -1244,8 +1240,6 @@
               },
               "foreignKeys": [
                 {
-                  "constraint": true,
-                  "index": true,
                   "onDelete": "cascade",
                   "source": {
                     "columns": [
@@ -1269,6 +1263,12 @@
                     "userId",
                     "updatedAt"
                   ]
+                },
+                {
+                  "columns": [
+                    "userId"
+                  ],
+                  "name": "chat_userId_idx"
                 }
               ],
               "primaryKey": {
@@ -1302,8 +1302,6 @@
               },
               "foreignKeys": [
                 {
-                  "constraint": true,
-                  "index": true,
                   "onDelete": "cascade",
                   "source": {
                     "columns": [
@@ -1389,8 +1387,6 @@
               },
               "foreignKeys": [
                 {
-                  "constraint": true,
-                  "index": true,
                   "onDelete": "cascade",
                   "source": {
                     "columns": [
@@ -1477,8 +1473,6 @@
               },
               "foreignKeys": [
                 {
-                  "constraint": true,
-                  "index": true,
                   "onDelete": "cascade",
                   "source": {
                     "columns": [
@@ -1565,8 +1559,6 @@
               },
               "foreignKeys": [
                 {
-                  "constraint": true,
-                  "index": true,
                   "onDelete": "cascade",
                   "source": {
                     "columns": [
@@ -1584,7 +1576,14 @@
                   }
                 }
               ],
-              "indexes": [],
+              "indexes": [
+                {
+                  "columns": [
+                    "userId"
+                  ],
+                  "name": "usage_userId_idx"
+                }
+              ],
               "primaryKey": {
                 "columns": [
                   "id"
@@ -1719,7 +1718,7 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "sha256:dfc4a9fa94b61700d97a402ae0de89766054e9c0b524318dcde45df96599672e"
+    "storageHash": "sha256:73d192eef30aaa81047306e3c6d4bfc3dc0a2c4f1b06d38df6ae45f587b74b13"
   },
   "execution": {
     "executionHash": "sha256:53df18e6e65a9763b9e38a31a4136134964447865584812609249e9a33f7e776",
