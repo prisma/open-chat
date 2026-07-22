@@ -403,6 +403,22 @@ Date: 2026-07-17.
 
 ### 9. Correcting an `envParam`'s value after the URL it depends on is known doesn't survive a redeploy — Alchemy sees no diff, so the correction never reaches a running instance
 
+> **Superseded — do not use this workaround.** The manual `PATCH` + throwaway
+> artifact-hash marker described below is the wrong fix, and on
+> `@prisma/composer@0.1.0-dev.18` it actively breaks the deploy: the raw
+> PATCHed value lands in the wire key, which the deserializer now `JSON.parse`s,
+> so the service crash-loops on boot. The real problem is a category error —
+> `APP_ORIGIN` is the service's own provisioned URL, a framework value, not
+> operator config. It should never have been an `envParam`.
+>
+> **Resolved by framework PR #147 (ADR-0039, `@prisma/composer@0.2.0-dev.1`):**
+> a service's own origin is now a platform-resolved property, read at runtime
+> via `service.origin()` — the framework injects it into the service's env as
+> the reserved `COMPOSER_ORIGIN` row at deploy. The port adopted it (the
+> `appOrigin` param is deleted from `module.ts`/`service.ts`; `start.ts` sets
+> `APP_ORIGIN` from `service.origin()`), and the deploy needs no second pass
+> and no manual correction. Recommendation (b) below is exactly what landed.
+
 **Where hit:** setting `APP_ORIGIN` on the `preview-d4` stage. The real
 preview URL (`https://iyhpiotsvrlr10zce97gifph.ewr.prisma.build`) isn't known
 until after the chat service's first deploy assigns it — the same
@@ -506,6 +522,83 @@ querying the correctly-named `database` resource instead. Recorded because
 "three databases per branch, only one of which your app's migrations ever
 touch" is exactly the kind of thing an operator debugging a "why is
 production empty" alarm would want written down.
+
+## D5 — service.origin() adoption and re-deploy on the ADR-0039 build
+
+Framework version under test: `@prisma/composer` / `@prisma/composer-prisma-cloud`
+`0.2.0-dev.1` (npm — the automated dev release of `prisma/composer` merge
+`ace693b`, PR #147 / ADR-0039). Date: 2026-07-22.
+
+### 11. A standalone install can't run `prisma-composer deploy` — the alchemy CLI needs alchemy's *optional* peers, and nothing declares them
+
+**Where hit:** the first deploy attempt on `0.2.0-dev.1`, from a standalone
+clone of this repo.
+
+**Symptom.** `prisma-composer deploy` dies before planning anything:
+`error: Cannot find module '@effect/platform-node/NodeServices' from
+'…/node_modules/alchemy/src/Cloudflare/Workers/WorkerBridge.ts'`; after
+supplying that package, the same failure repeats for
+`@effect/platform-bun/BunRuntime` (from alchemy's `Util/PlatformServices.ts`).
+
+**Cause.** The deploy path runs the `alchemy` CLI, whose command tree
+statically imports the Cloudflare provider namespace and alchemy's platform
+services — which import `@effect/platform-node` and `@effect/platform-bun`.
+alchemy declares both as **optional** peerDependencies, so `bun install`
+doesn't install them, and neither `@prisma/composer` nor
+`@prisma/composer-prisma-cloud` declares them either. In practice they are
+hard requirements of every deploy.
+
+**Why every earlier dispatch missed it:** this clone used to sit *inside* a
+`prisma/composer` worktree, so Node module resolution walked up out of the
+app and found both packages in the framework workspace's own pnpm
+`node_modules`. The deploy only ever worked by inheriting the framework's
+dev tree — an accident of directory nesting a real user won't have.
+
+**Workaround.** Declare the two packages as devDependencies of the app
+(`@effect/platform-node@4.0.0-beta.92`, `@effect/platform-bun@4.0.0-beta.92`
+— versions matching alchemy `2.0.0-beta.59`'s peer range).
+
+**Recommendation.** `@prisma/composer-prisma-cloud` (or whatever package
+fronts the alchemy CLI) should carry these as real dependencies, or the CLI
+should lazy-import provider namespaces so unused providers' peers stay
+genuinely optional. An app deploying to Prisma Cloud should not need to know
+alchemy's Cloudflare provider exists.
+
+### 12. A plain-`postgres()` app has no path to its own provisioned database at deploy — the port's documented "app runs its own migrations" step can't be automated
+
+**Where hit:** first request against the fresh D5 deploy — guest sign-in
+500, service logs `ERROR [Better Auth]: relation "user" does not exist`.
+
+**Symptom.** The deploy succeeds (84 steps, all green) and the app boots, but
+every DB-backed route 500s: nothing ever applied the schema to the freshly
+provisioned `database` resource.
+
+**Cause.** This port's settled design (Chosen design #7, PR #1) is a plain
+`postgres()` resource with the app owning its schema —
+`prisma-next db init` against the provisioned URL. That step needs the URL,
+and the framework never surfaces it to the operator: the deploy resolves the
+DSN internally (it writes `COMPOSER_CHAT_DB_URL` into the service's env),
+but the CLI has only `deploy` and `destroy` — no outputs/state read — and
+the deployment report prints resource ids, not connection strings.
+`pnPostgres()` has managed deploy-time migrations, but can't satisfy a plain
+`postgres()` dependency (#1), so an app that owns its own pool is locked out
+of both mechanisms. Earlier dispatches papered over this without noticing:
+D3/D4 ran `db init` by hand against a Management-API-minted connection, an
+operator step outside the deploy that FRICTION.md never recorded as such.
+
+**Workaround (this dispatch, recorded as an operator step, not automated):**
+mint a connection on the `database` resource
+(`POST /v1/databases/{id}/connections`, DSN in
+`endpoints.direct.connectionString` — PRO-212), then
+`bunx prisma-next db init --db <dsn> -y` (additive-only, safe to rerun).
+After it, every DB-backed route works — see the D5 verification.
+
+**Recommendation.** Either of two affordances closes this: (a) a
+`prisma-composer` way to read a provisioned resource's connection values
+from the deploy shell (an outputs command, or a post-deploy hook handed the
+resolved bindings), or (b) a migrations hook on plain `postgres()` — "run
+this command against the resolved URL before the dependent service starts" —
+the deploy already sequences exactly this for `pnPostgres()`.
 
 ## Referenced elsewhere
 

@@ -6,5 +6,5 @@ import { prismaCloud, prismaState } from "@prisma/composer-prisma-cloud/control"
 
 export default defineConfig({
   extensions: [prismaCloud(), nodeBuild()],
-  state: () => prismaState(),
+  state: prismaState(),
 });

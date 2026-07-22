@@ -23,26 +23,49 @@
 // reproduces that exact nesting (dist/pack/dist/{composer,server}/) inside
 // the tree `dir` ships, so the same string still resolves after deploy
 // copies it verbatim into `bundle/`.
+import { configKey } from "@prisma/composer-prisma-cloud";
 import service from "./service";
 
-const { db, streams } = service.load();
+const { db } = service.load();
 const {
   openrouterApiKey,
   betterAuthSecret,
-  streamsKey,
   stripeSecretKey,
   stripeWebhookSecret,
 } = service.secrets();
-const { appOrigin, openrouterAppName, openrouterSiteUrl } = service.config();
+const { openrouterAppName, openrouterSiteUrl } = service.config();
+
+// The streams dependency's bearer key is now minted by the target per
+// streams module (ADR-0031), not a secret this launcher binds — see
+// service.ts's `streams: durableStreams()` dep. `service.load().streams`
+// hydrates to a `StreamsClient` whose `url`/`apiKey` are private fields (no
+// public accessor), but this app's own client (src/server/streams.ts) needs
+// the raw strings to set STREAMS_URL/STREAMS_API_KEY, not a StreamsClient
+// instance. The only public accessor for a dependency's raw connection
+// values is `configKey()` — the same key format `compute()`'s `run()`
+// already stashed address-free onto process.env before this file was
+// imported (the same channel `service.load()`/`config()`/`secrets()` read).
+// Recorded in FRICTION.md — there is no `load()`-shaped way to get here.
+function rawStreamsParam(name: "url" | "apiKey"): string {
+  const key = configKey("", { owner: { input: "streams" }, name });
+  const value = process.env[key];
+  if (!value) {
+    throw new Error(`missing resolved streams dependency param "${name}" (env ${key})`);
+  }
+  return value;
+}
 
 process.env["DATABASE_URL"] = db.url;
-process.env["STREAMS_URL"] = streams.url;
-process.env["STREAMS_API_KEY"] = streamsKey.expose();
+process.env["STREAMS_URL"] = rawStreamsParam("url");
+process.env["STREAMS_API_KEY"] = rawStreamsParam("apiKey");
 process.env["OPENROUTER_API_KEY"] = openrouterApiKey.expose();
 process.env["BETTER_AUTH_SECRET"] = betterAuthSecret.expose();
 process.env["STRIPE_SECRET_KEY"] = stripeSecretKey.expose();
 process.env["STRIPE_WEBHOOK_SECRET"] = stripeWebhookSecret.expose();
-process.env["APP_ORIGIN"] = appOrigin;
+// The app's own public URL is a platform-resolved property of the service
+// (ADR-0039), not operator config — service.origin() reads the framework-
+// injected COMPOSER_ORIGIN row.
+process.env["APP_ORIGIN"] = service.origin();
 process.env["OPENROUTER_APP_NAME"] = openrouterAppName;
 process.env["OPENROUTER_SITE_URL"] = openrouterSiteUrl;
 

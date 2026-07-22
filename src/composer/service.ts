@@ -20,14 +20,12 @@ export default compute({
     streams: durableStreams(),
   },
   params: {
-    appOrigin: string(),
     openrouterAppName: string({ default: "Open Chat Local" }),
     openrouterSiteUrl: string({ default: "http://localhost:3000" }),
   },
   secrets: {
     openrouterApiKey: secret(),
     betterAuthSecret: secret(),
-    streamsKey: secret(),
     stripeSecretKey: secret(),
     stripeWebhookSecret: secret(),
   },

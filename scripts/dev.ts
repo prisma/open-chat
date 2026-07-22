@@ -18,16 +18,21 @@
 //     path). Using the module's stand-in, and feeding its URL through the same
 //     COMPOSER_* config channel a deploy would, is what proves the topology's
 //     streams *dependency* resolves locally, not just that the app can start
-//     an embedded server on its own.
+//     an embedded server on its own. The bearer key is a minted connection
+//     param at deploy (ADR-0031, not a secret this script binds); locally it's
+//     a placeholder value bound the same way the URL is, since the stand-in
+//     doesn't check it.
 //   - Secrets/params: written directly onto process.env in the wire format
 //     target/src/serializer.ts defines (COMPOSER_<ADDRESS>_<NAME>, uppercased;
 //     a secret slot is a pointer row naming a second env var that holds the
-//     real value) — the same protocol the deploy-printed bootstrap.js and
-//     platform env injection produce, reproduced by hand because there is no
-//     local-dev harness for a compute() node with real deps (see FRICTION.md).
-//     Built with this package's own configKey() rather than a hand-rolled
-//     uppercase transform, so this script cannot silently drift from the
-//     framework's actual key format.
+//     real value, while a dependency's own connection param — e.g. streams'
+//     url/apiKey — is written directly, no pointer row) — the same protocol
+//     the deploy-printed bootstrap.js and platform env injection produce,
+//     reproduced by hand because there is no local-dev harness for a
+//     compute() node with real deps (see FRICTION.md). Built with this
+//     package's own configKey() rather than a hand-rolled uppercase
+//     transform, so this script cannot silently drift from the framework's
+//     actual key format.
 //
 // OPENROUTER_API_KEY is the one genuine external credential in this graph.
 // This script runs without it: the secret slot still needs a non-empty value
@@ -111,8 +116,8 @@ console.log(`[dev:composer] streams stand-in ready: ${streams.exports.http.url}`
 console.log("[dev:composer] building the app (bun run build:chat)...");
 await run(["bun", "run", "build:chat"]);
 
-function bindDependencyUrl(input: string, url: string) {
-  process.env[configKey(ADDRESS, { owner: { input }, name: "url" })] = url;
+function bindDependencyParam(input: string, name: string, value: string) {
+  process.env[configKey(ADDRESS, { owner: { input }, name })] = value;
 }
 
 function bindLiteralParam(name: string, value: unknown) {
@@ -142,9 +147,21 @@ function bindSecret(slot: string, platformVar: string, fallback: () => string) {
 const port = resolvePort();
 const appOrigin = `http://localhost:${port}`;
 
-bindDependencyUrl("db", databaseUrl);
-bindDependencyUrl("streams", streams.exports.http.url);
-bindLiteralParam("appOrigin", appOrigin);
+bindDependencyParam("db", "url", databaseUrl);
+bindDependencyParam("streams", "url", streams.exports.http.url);
+// The streams bearer key is minted by the target at deploy (ADR-0031), not a
+// secret this script binds — it's the streams dependency's own `apiKey`
+// connection param (see module.ts, service.ts). The local stand-in
+// (startLocalStreamsServer) has no auth check, so any non-empty value
+// resolves the param and lets the app send a bearer header the stand-in
+// ignores — standing in for the real minted key the same way the other
+// local placeholders below stand in for real secrets.
+bindDependencyParam("streams", "apiKey", `local-placeholder-${randomHex(16)}`);
+// The service's own origin is a framework-resolved provider param (ADR-0039),
+// not a declared param: a deploy writes the addressed ORIGIN row and run()
+// re-stashes it address-free as COMPOSER_ORIGIN, which service.origin() reads.
+// Writing the addressed row here exercises that same stash path locally.
+bindLiteralParam("ORIGIN", appOrigin);
 // The reserved `port` param — run() re-exports whatever it resolves to as
 // PORT (the convention Bun.serve reads), so this is the one write that
 // actually chooses which port the app binds to.
@@ -152,7 +169,6 @@ bindLiteralParam("port", port);
 
 bindSecret("openrouterApiKey", "OPENROUTER_API_KEY", () => `local-placeholder-${randomHex(8)}`);
 bindSecret("betterAuthSecret", "BETTER_AUTH_SECRET", () => randomHex(32));
-bindSecret("streamsKey", "STREAMS_API_KEY", () => randomHex(16));
 bindSecret("stripeSecretKey", "STRIPE_SECRET_KEY", () => `sk_test_local_${randomHex(16)}`);
 bindSecret(
   "stripeWebhookSecret",
