@@ -29,7 +29,7 @@
 //     url/apiKey — is written directly, no pointer row) — the same protocol
 //     the deploy-printed bootstrap.js and platform env injection produce,
 //     reproduced by hand because there is no local-dev harness for a
-//     compute() node with real deps (see FRICTION.md). Built with this
+//     compute() node with real deps. Built with this
 //     package's own configKey() rather than a hand-rolled uppercase
 //     transform, so this script cannot silently drift from the framework's
 //     actual key format.

@@ -4,8 +4,7 @@
 // ADR-0022/ADR-0040), and the chat compute service depends on both. The
 // streams bearer key is minted by the target per streams module (ADR-0031)
 // and delivered through the chat service's `durableStreams()` binding —
-// nobody supplies it here (framework #92; see FRICTION.md's superseded note
-// on the old two-consumer wiring). A closed root: no boundary argument, no
+// nobody supplies it here. A closed root: no boundary argument, no
 // return — it only provisions.
 import { module } from "@prisma/composer";
 import { envSecret } from "@prisma/composer-prisma-cloud";

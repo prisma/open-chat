@@ -45,7 +45,7 @@ const { openrouterAppName, openrouterSiteUrl } = service.config();
 // values is `configKey()` — the same key format `compute()`'s `run()`
 // already stashed address-free onto process.env before this file was
 // imported (the same channel `service.load()`/`config()`/`secrets()` read).
-// Recorded in FRICTION.md — there is no `load()`-shaped way to get here.
+// There is no `load()`-shaped way to get here.
 function rawStreamsParam(name: "url" | "apiKey"): string {
   const key = configKey("", { owner: { input: "streams" }, name });
   const value = process.env[key];
