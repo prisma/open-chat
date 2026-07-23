@@ -1,25 +1,34 @@
 import { betterAuth } from "better-auth";
 import { anonymous } from "better-auth/plugins";
 import { db, pool } from "../prisma/db";
-import { env } from "./env";
+import service from "../service";
 import { appendMessageEvent, loadAllMessageEvents } from "./streams";
 
-// Social providers light up only when their credentials are configured;
-// the client asks /api/config which ones to offer.
+// Social sign-in is off in this topology; providers light up only if
+// credentials appear in the plain environment. These four cannot live on
+// the service node yet: a secret() slot is required — secrets() fails if
+// any slot is unbound — and an off-by-default feature must not force
+// operators to invent placeholder values (which would also defeat this
+// presence check). The client asks /api/config which providers to offer.
+const githubClientId = process.env["GITHUB_CLIENT_ID"];
+const githubClientSecret = process.env["GITHUB_CLIENT_SECRET"];
+const googleClientId = process.env["GOOGLE_CLIENT_ID"];
+const googleClientSecret = process.env["GOOGLE_CLIENT_SECRET"];
+
 const socialProviders = {
-  ...(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET
+  ...(githubClientId && githubClientSecret
     ? {
         github: {
-          clientId: env.GITHUB_CLIENT_ID,
-          clientSecret: env.GITHUB_CLIENT_SECRET,
+          clientId: githubClientId,
+          clientSecret: githubClientSecret,
         },
       }
     : {}),
-  ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
+  ...(googleClientId && googleClientSecret
     ? {
         google: {
-          clientId: env.GOOGLE_CLIENT_ID,
-          clientSecret: env.GOOGLE_CLIENT_SECRET,
+          clientId: googleClientId,
+          clientSecret: googleClientSecret,
         },
       }
     : {}),
@@ -34,26 +43,30 @@ export function configuredSocialProviders() {
 // chats. Move the chats and replay their durable events into the new
 // user's stream first, so nothing is lost by creating an account.
 async function migrateGuestData(anonymousUserId: string, newUserId: string) {
-  const chats = await db.orm.Chat.where({ userId: anonymousUserId }).all();
+  const chats = await db.orm.public.Chat.where({ userId: anonymousUserId }).all();
 
   for (const chat of chats) {
     const { events } = await loadAllMessageEvents(anonymousUserId, chat.id);
     for (const event of events) {
       await appendMessageEvent(newUserId, chat.id, event);
     }
-    await db.orm.Chat.where({ id: chat.id }).update({ userId: newUserId });
+    await db.orm.public.Chat.where({ id: chat.id }).update({ userId: newUserId });
   }
 
   // Stored images follow their owner, so /api/content keeps serving them
   // after the guest becomes an account.
-  await db.orm.Content.where({ userId: anonymousUserId }).update({
+  await db.orm.public.Content.where({ userId: anonymousUserId }).update({
     userId: newUserId,
   });
 }
 
+// The app's public URL is a platform-resolved property of the service
+// (ADR-0039), not operator config.
+const appOrigin = service.origin();
+
 export const auth = betterAuth({
-  baseURL: env.APP_ORIGIN,
-  secret: env.BETTER_AUTH_SECRET,
+  baseURL: appOrigin,
+  secret: service.secrets().betterAuthSecret.expose(),
   database: pool,
   emailAndPassword: {
     enabled: true,
@@ -66,7 +79,7 @@ export const auth = betterAuth({
       },
     }),
   ],
-  trustedOrigins: [env.APP_ORIGIN],
+  trustedOrigins: [appOrigin],
 });
 
 export type AuthSession = NonNullable<

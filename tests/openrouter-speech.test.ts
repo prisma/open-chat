@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
 
-process.env.APP_ORIGIN ??= "http://localhost:3000";
-process.env.BETTER_AUTH_SECRET ??= "test-secret-test-secret-test-secret";
-process.env.DATABASE_URL ??= "postgres://user:pass@localhost:5432/db";
-
 const { parseSpeechContentType, speechDefaultsForModel } = await import(
   "../src/server/openrouter"
 );

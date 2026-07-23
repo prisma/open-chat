@@ -60,7 +60,7 @@ export async function storeContent(dataUrl: string, userId: string) {
   } else {
     await Bun.write(join(LOCAL_DIR, id), bytes);
   }
-  await db.orm.Content.create({ id, userId, createdAt: new Date() });
+  await db.orm.public.Content.create({ id, userId, createdAt: new Date() });
   return id;
 }
 
@@ -70,7 +70,7 @@ export async function storeContent(dataUrl: string, userId: string) {
  * session — their ids are unguessable UUIDs.
  */
 export async function contentReadableBy(id: string, userId: string) {
-  const row = await db.orm.Content.where({ id }).first();
+  const row = await db.orm.public.Content.where({ id }).first();
   return !row || row.userId === userId;
 }
 

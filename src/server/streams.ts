@@ -5,33 +5,34 @@
 // before the UI ever sees it, and reads can resume from any offset — that
 // is what lets a chat survive refreshes, reconnects, and server restarts.
 import { createHash } from "node:crypto";
-import { startLocalDurableStreamsServer } from "@prisma/streams-local";
-import { env } from "./env";
+import { configKey } from "@prisma/composer-prisma-cloud";
 import { HttpError } from "./http";
 import { messageEventSchema, type MessageEvent } from "../shared/contracts";
 
-let streamsUrlPromise: Promise<string> | undefined;
+// The service's streams dependency hydrates to a `StreamsClient`
+// (service.load().streams), but this app cannot use it: it multiplexes chats
+// over one per-user stream with a routing key — a `stream-key` header on
+// append and a `key` filter on read — and neither StreamsClient nor
+// StreamHandle can express a routing key. The client's url/apiKey are
+// private, so the raw connection params are read from the same COMPOSER_*
+// stash run() populated; configKey() is the only public accessor for a
+// dependency's raw values.
+function rawStreamsParam(name: "url" | "apiKey"): string {
+  const key = configKey("", { owner: { input: "streams" }, name });
+  const value = process.env[key];
+  if (!value) {
+    throw new Error(
+      `missing resolved streams dependency param "${name}" (env ${key})`,
+    );
+  }
+  return value;
+}
+
+export function streamsOrigin() {
+  return new URL(rawStreamsParam("url")).origin;
+}
+
 const createdStreams = new Set<string>();
-
-async function resolveStreamsUrl() {
-  if (env.STREAMS_URL) return env.STREAMS_URL.replace(/\/$/, "");
-
-  const server = await startLocalDurableStreamsServer({
-    name: "open-chat",
-    hostname: "127.0.0.1",
-    port: env.STREAMS_PORT,
-  });
-
-  console.log(
-    `Prisma Streams local server running at ${server.exports.http.url}`,
-  );
-  return server.exports.http.url.replace(/\/$/, "");
-}
-
-export function getStreamsUrl() {
-  streamsUrlPromise ??= resolveStreamsUrl();
-  return streamsUrlPromise;
-}
 
 export function streamNameForUser(userId: string) {
   const hash = createHash("sha256").update(userId).digest("hex").slice(0, 24);
@@ -43,13 +44,9 @@ export function chatRoutingKey(chatId: string) {
 }
 
 async function streamsFetch(path: string, init?: RequestInit) {
-  const baseUrl = await getStreamsUrl();
-  // A remote streams service (src/streams-app) requires a bearer key; the
-  // embedded local server ignores the header.
+  const baseUrl = rawStreamsParam("url").replace(/\/$/, "");
   const headers = new Headers(init?.headers);
-  if (env.STREAMS_API_KEY) {
-    headers.set("authorization", `Bearer ${env.STREAMS_API_KEY}`);
-  }
+  headers.set("authorization", `Bearer ${rawStreamsParam("apiKey")}`);
   const response = await fetch(`${baseUrl}${path}`, { ...init, headers });
 
   if (!response.ok) {

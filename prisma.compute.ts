@@ -18,7 +18,7 @@ export default defineComputeConfig({
       entry: "src/start.ts",
       httpPort: 3000,
       build: {
-        command: "bun run build:chat",
+        command: "bun run build",
         outputDirectory: "dist/server",
       },
     },

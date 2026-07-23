@@ -7,9 +7,9 @@ import {
 import { GUEST_LIMIT_MICRO_USD } from "../../shared/billing";
 import { configuredSocialProviders } from "../auth";
 import { getCreditSummary } from "../billing";
-import { env } from "../env";
 import { assertMethod, gzipJson, json, requireUser } from "../http";
 import { listOpenRouterModels } from "../openrouter";
+import { streamsOrigin } from "../streams";
 import { getGuestSpendMicroUsd } from "../usage";
 
 export async function listModels(request: Request) {
@@ -60,13 +60,13 @@ export async function getUsage(request: Request) {
 
 export function getConfig(request: Request) {
   assertMethod(request, ["GET"]);
-  const streamsUrl =
-    env.STREAMS_URL || `http://127.0.0.1:${env.STREAMS_PORT}`;
+  // Billing and remote streams are structural in this topology: the Stripe
+  // secrets are required slots and the streams server is a wired dependency.
   const dto: ConfigDto = {
     socialProviders: configuredSocialProviders(),
-    billingEnabled: Boolean(env.STRIPE_SECRET_KEY),
-    streamsRemote: Boolean(env.STREAMS_URL),
-    streamsOrigin: new URL(streamsUrl).origin,
+    billingEnabled: true,
+    streamsRemote: true,
+    streamsOrigin: streamsOrigin(),
   };
   return json(dto);
 }

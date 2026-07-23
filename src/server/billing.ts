@@ -15,7 +15,7 @@ import {
   type TopupOptionUsd,
 } from "../shared/billing";
 import { db } from "../prisma/db";
-import { env } from "./env";
+import service from "../service";
 import { HttpError } from "./http";
 import { appendStreamEvents } from "./streams";
 
@@ -40,21 +40,18 @@ async function logWebhook(record: Record<string, unknown>) {
 let stripeClient: Stripe | undefined;
 
 function getStripe() {
-  if (!env.STRIPE_SECRET_KEY) {
-    throw new HttpError(503, "Billing is not configured on this server");
-  }
-  stripeClient ??= new Stripe(env.STRIPE_SECRET_KEY);
+  stripeClient ??= new Stripe(service.secrets().stripeSecretKey.expose());
   return stripeClient;
 }
 
 export async function ensureBilling(userId: string) {
-  const existing = await db.orm.Billing.where({ userId }).first();
+  const existing = await db.orm.public.Billing.where({ userId }).first();
   if (existing) return existing;
 
   const now = new Date();
   // Deterministic ids make both inserts idempotent under concurrent
   // requests; a unique-violation just means the other request won.
-  await db.orm.CreditGrant.create({
+  await db.orm.public.CreditGrant.create({
     id: `grant_signup_${userId}`,
     userId,
     kind: "signup",
@@ -64,27 +61,27 @@ export async function ensureBilling(userId: string) {
     stripeSessionId: null,
     createdAt: now,
   }).catch(() => undefined);
-  await db.orm.Billing.create({
+  await db.orm.public.Billing.create({
     id: `billing_${userId}`,
     userId,
     zeroAt: null,
     createdAt: now,
   }).catch(() => undefined);
 
-  const billing = await db.orm.Billing.where({ userId }).first();
+  const billing = await db.orm.public.Billing.where({ userId }).first();
   if (!billing) throw new Error("Failed to initialize billing");
   return billing;
 }
 
 async function grantedMicroUsd(userId: string) {
-  const totals = await db.orm.CreditGrant.where({ userId }).aggregate(
+  const totals = await db.orm.public.CreditGrant.where({ userId }).aggregate(
     (aggregate) => ({ credit: aggregate.sum("creditMicroUsd") }),
   );
   return totals.credit ?? 0;
 }
 
 async function lifetimeSpendMicroUsd(userId: string) {
-  const totals = await db.orm.Usage.where({ userId }).aggregate(
+  const totals = await db.orm.public.Usage.where({ userId }).aggregate(
     (aggregate) => ({ cost: aggregate.sum("costMicroUsd") }),
   );
   return totals.cost ?? 0;
@@ -126,7 +123,7 @@ export async function markZeroIfDrained(userId: string) {
   ]);
   if (granted - spent > 0) return;
 
-  await db.orm.Billing.where({ id: billing.id }).update({ zeroAt: new Date() });
+  await db.orm.public.Billing.where({ id: billing.id }).update({ zeroAt: new Date() });
 }
 
 /**
@@ -139,7 +136,7 @@ export async function maybeGrantFreeTopup(userId: string) {
   if (!billing.zeroAt || !isFreeTopupDue(billing.zeroAt)) return false;
 
   // One drip per zero-event: the id encodes when the balance ran out.
-  await db.orm.CreditGrant.create({
+  await db.orm.public.CreditGrant.create({
     id: `grant_drip_${userId}_${billing.zeroAt.getTime()}`,
     userId,
     kind: "free-topup",
@@ -149,7 +146,7 @@ export async function maybeGrantFreeTopup(userId: string) {
     stripeSessionId: null,
     createdAt: new Date(),
   }).catch(() => undefined);
-  await db.orm.Billing.where({ id: billing.id }).update({ zeroAt: null });
+  await db.orm.public.Billing.where({ id: billing.id }).update({ zeroAt: null });
   return true;
 }
 
@@ -195,8 +192,8 @@ export async function createTopupCheckout(
       creditMicroUsd: String(quote.creditMicroUsd),
       feeMicroUsd: String(quote.feeMicroUsd),
     },
-    success_url: `${env.APP_ORIGIN}/?billing=success&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${env.APP_ORIGIN}/?billing=cancelled`,
+    success_url: `${service.origin()}/?billing=success&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${service.origin()}/?billing=cancelled`,
   });
 
   if (!session.url) throw new Error("Stripe did not return a checkout URL");
@@ -215,14 +212,14 @@ async function creditPaidSession(session: Stripe.Checkout.Session) {
     throw new HttpError(402, "Checkout session has not been paid");
   }
 
-  const existing = await db.orm.CreditGrant.where({
+  const existing = await db.orm.public.CreditGrant.where({
     stripeSessionId: session.id,
   }).first();
   if (existing) return { userId, creditMicroUsd, alreadyCredited: true };
 
   // The unique stripeSessionId makes a concurrent webhook/redirect race
   // resolve to a single grant.
-  await db.orm.CreditGrant.create({
+  await db.orm.public.CreditGrant.create({
     id: `grant_topup_${crypto.randomUUID()}`,
     userId,
     kind: "topup",
@@ -232,14 +229,14 @@ async function creditPaidSession(session: Stripe.Checkout.Session) {
     stripeSessionId: session.id,
     createdAt: new Date(),
   }).catch(async () => {
-    const winner = await db.orm.CreditGrant.where({
+    const winner = await db.orm.public.CreditGrant.where({
       stripeSessionId: session.id,
     }).first();
     if (!winner) throw new Error("Failed to record top-up");
   });
 
   // Balance is positive again; reset the free top-up clock.
-  await db.orm.Billing.where({ userId }).update({ zeroAt: null });
+  await db.orm.public.Billing.where({ userId }).update({ zeroAt: null });
   return { userId, creditMicroUsd, alreadyCredited: false };
 }
 
@@ -257,9 +254,6 @@ export async function confirmTopup(userId: string, sessionId: string) {
 
 /** Webhook path: credits even if the user never returns to the app. */
 export async function handleStripeWebhook(request: Request) {
-  if (!env.STRIPE_WEBHOOK_SECRET) {
-    throw new HttpError(501, "Stripe webhook secret is not configured");
-  }
   const stripe = getStripe();
   const body = await request.text();
   const signature = request.headers.get("stripe-signature");
@@ -273,7 +267,7 @@ export async function handleStripeWebhook(request: Request) {
     event = await stripe.webhooks.constructEventAsync(
       body,
       signature,
-      env.STRIPE_WEBHOOK_SECRET,
+      service.secrets().stripeWebhookSecret.expose(),
     );
   } catch {
     await logWebhook({

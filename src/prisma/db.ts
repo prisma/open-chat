@@ -1,11 +1,15 @@
+// One `pg.Pool` built straight from the service node's `db.url`, shared with
+// Better Auth (src/server/auth.ts). The binding's lazy typed client
+// (`db.client`, ADR-0040) is deliberately never touched: this pool is the
+// app's one set of database connections.
 import { Pool } from "pg";
 import postgres from "@prisma-next/postgres/runtime";
-import { env } from "../server/env";
+import service from "../service";
 import type { Contract } from "./contract.d";
 import contractJson from "./contract.json" with { type: "json" };
 
 function createPool() {
-  return new Pool({ connectionString: env.DATABASE_URL });
+  return new Pool({ connectionString: service.load().db.url });
 }
 
 function createDb(pg: Pool) {

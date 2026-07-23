@@ -25,7 +25,7 @@ export function currentPeriod() {
 
 export async function getGuestSpendMicroUsd(userId: string) {
   // Guest budgets are lifetime, not monthly: sum every period.
-  const totals = await db.orm.Usage.where({ userId }).aggregate(
+  const totals = await db.orm.public.Usage.where({ userId }).aggregate(
     (aggregate) => ({ cost: aggregate.sum("costMicroUsd") }),
   );
   return totals.cost ?? 0;
@@ -109,11 +109,11 @@ export async function summarizeSpeechUsage(
 
 export async function recordUsage(user: SpendUser, usage: UsageSummary) {
   const period = currentPeriod();
-  const existing = await db.orm.Usage.where({ userId: user.id, period })
+  const existing = await db.orm.public.Usage.where({ userId: user.id, period })
     .first();
 
   if (existing) {
-    await db.orm.Usage.where({ id: existing.id }).update({
+    await db.orm.public.Usage.where({ id: existing.id }).update({
       inputTokens: existing.inputTokens + usage.inputTokens,
       outputTokens: existing.outputTokens + usage.outputTokens,
       costMicroUsd: existing.costMicroUsd + usage.costMicroUsd,
@@ -121,7 +121,7 @@ export async function recordUsage(user: SpendUser, usage: UsageSummary) {
     });
   } else {
     const now = new Date();
-    await db.orm.Usage.create({
+    await db.orm.public.Usage.create({
       id: `usage_${crypto.randomUUID()}`,
       userId: user.id,
       period,
