@@ -4,9 +4,12 @@ import { db, pool } from "../prisma/db";
 import service from "../service";
 import { appendMessageEvent, loadAllMessageEvents } from "./streams";
 
-// Social sign-in is off in this topology (the service declares no OAuth
-// secrets); providers light up only if credentials appear in the plain
-// environment. The client asks /api/config which ones to offer.
+// Social sign-in is off in this topology; providers light up only if
+// credentials appear in the plain environment. These four cannot live on
+// the service node yet: a secret() slot is required — secrets() fails if
+// any slot is unbound — and an off-by-default feature must not force
+// operators to invent placeholder values (which would also defeat this
+// presence check). The client asks /api/config which providers to offer.
 const githubClientId = process.env["GITHUB_CLIENT_ID"];
 const githubClientSecret = process.env["GITHUB_CLIENT_SECRET"];
 const googleClientId = process.env["GOOGLE_CLIENT_ID"];
