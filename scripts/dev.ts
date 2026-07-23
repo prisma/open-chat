@@ -1,27 +1,21 @@
 #!/usr/bin/env bun
-// Local dev loop for open-chat's Composer topology (S7/D2) — no cloud
-// credentials. Unlike `bun run dev` (which runs src/server/index.ts
-// directly, with hot reload), this boots the app through the exact same
-// launcher path a deploy uses: src/composer/service.ts's compute() node,
-// run() the way the deploy-printed bootstrap runs it, dynamically importing
-// src/composer/start.ts once run() has resolved config/secrets. That's the
-// point of this script — proving the topology's wiring locally, not fast
-// iteration. `bun run dev` is untouched and remains the fast loop.
+// The local dev loop (`bun run dev`): boots the app exactly the way a deploy
+// does — the compute() node's run(), the way the deploy-printed bootstrap
+// runs it, importing src/start.ts once run() has resolved config/secrets.
+// The server consumes the service node directly, so this harness is the one
+// local path; the trade-off is no hot reload (restart to pick up changes).
 //
 // Standing in for a deploy's provisioning + platform env vars:
 //   - Postgres: local, via open-chat's own `db:dev` (`prisma dev --detach`),
-//     then `prisma-next db init` (additive-only, safe to rerun).
+//     then `prisma-next db init` (additive-only, safe to rerun) as the local
+//     stand-in for the deploy-run migrations.
 //   - Streams: the streams module's own local stand-in
 //     (startLocalStreamsServer from @prisma/composer-prisma-cloud/streams/testing)
-//     — SQLite, loopback, no auth — NOT open-chat's embedded
-//     @prisma/streams-local fallback (src/server/streams.ts's STREAMS_URL-unset
-//     path). Using the module's stand-in, and feeding its URL through the same
-//     COMPOSER_* config channel a deploy would, is what proves the topology's
-//     streams *dependency* resolves locally, not just that the app can start
-//     an embedded server on its own. The bearer key is a minted connection
-//     param at deploy (ADR-0031, not a secret this script binds); locally it's
-//     a placeholder value bound the same way the URL is, since the stand-in
-//     doesn't check it.
+//     — SQLite, loopback, no auth. Its URL is fed through the same COMPOSER_*
+//     config channel a deploy would use. The bearer key is a minted
+//     connection param at deploy (ADR-0031, not a secret this script binds);
+//     locally it's a placeholder value bound the same way the URL is, since
+//     the stand-in doesn't check it.
 //   - Secrets/params: written directly onto process.env in the wire format
 //     target/src/serializer.ts defines (COMPOSER_<ADDRESS>_<NAME>, uppercased;
 //     a secret slot is a pointer row naming a second env var that holds the
@@ -44,12 +38,12 @@
 // Export a real OPENROUTER_API_KEY before running this script to also
 // exercise generation.
 //
-// Binds to 3000 by default (open-chat's own default); PORT=3100 bun run
-// dev:composer picks a different one if something else already holds it.
+// Binds to 3000 by default (open-chat's own default); PORT=3100 bun run dev
+// picks a different one if something else already holds it.
 import { randomBytes } from "node:crypto";
 import { configKey } from "@prisma/composer-prisma-cloud";
 import { startLocalStreamsServer } from "@prisma/composer-prisma-cloud/streams/testing";
-import chatService from "../src/composer/service";
+import chatService from "../src/service";
 
 // module.ts provisions the chat service at the module root with id "chat";
 // Load derives a root-scope provision's address as its bare id (no dotted
@@ -58,11 +52,10 @@ import chatService from "../src/composer/service";
 // deploy would write, not a look-alike local shortcut.
 const ADDRESS = "chat";
 
-// 3000 matches the app's own default (env.ts, README) — but it's only a
-// default. A previous dev.ts run, another local server, or (as found while
-// testing this script) an unrelated process on the operator's machine can
-// already hold 3000, so this must stay overridable: PORT=3100 bun run
-// dev:composer.
+// 3000 matches the app's own historical default — but it's only a default.
+// A previous dev.ts run, another local server, or an unrelated process on
+// the operator's machine can already hold 3000, so this must stay
+// overridable: PORT=3100 bun run dev.
 const DEFAULT_PORT = 3000;
 
 function resolvePort(): number {
@@ -70,7 +63,7 @@ function resolvePort(): number {
   if (override === undefined || override === "") return DEFAULT_PORT;
   const parsed = Number(override);
   if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`[dev:composer] PORT="${override}" is not a positive integer.`);
+    throw new Error(`[dev] PORT="${override}" is not a positive integer.`);
   }
   return parsed;
 }
@@ -89,7 +82,7 @@ async function run(cmd: string[]) {
   return output.trim();
 }
 
-console.log("[dev:composer] starting local Postgres (prisma dev)...");
+console.log("[dev] starting local Postgres (prisma dev)...");
 const dbUrlOutput = await run([
   "bunx",
   "prisma",
@@ -101,20 +94,17 @@ const dbUrlOutput = await run([
 const databaseUrl = dbUrlOutput.split("\n").at(-1)?.trim();
 if (!databaseUrl) {
   throw new Error(
-    `[dev:composer] could not read the database URL from "prisma dev --detach"; got:\n${dbUrlOutput}`,
+    `[dev] could not read the database URL from "prisma dev --detach"; got:\n${dbUrlOutput}`,
   );
 }
-console.log(`[dev:composer] Postgres ready: ${databaseUrl.replace(/:[^/:@]*@/, ":***@")}`);
+console.log(`[dev] Postgres ready: ${databaseUrl.replace(/:[^/:@]*@/, ":***@")}`);
 
-console.log("[dev:composer] ensuring tables exist (prisma-next db init)...");
+console.log("[dev] ensuring tables exist (prisma-next db init)...");
 await run(["bunx", "prisma-next", "db", "init", "--db", databaseUrl, "-y"]);
 
-console.log("[dev:composer] starting the streams module's local stand-in...");
+console.log("[dev] starting the streams module's local stand-in...");
 const streams = await startLocalStreamsServer({ name: "open-chat-composer-dev" });
-console.log(`[dev:composer] streams stand-in ready: ${streams.exports.http.url}`);
-
-console.log("[dev:composer] building the app (bun run build:chat)...");
-await run(["bun", "run", "build:chat"]);
+console.log(`[dev] streams stand-in ready: ${streams.exports.http.url}`);
 
 function bindDependencyParam(input: string, name: string, value: string) {
   process.env[configKey(ADDRESS, { owner: { input }, name })] = value;
@@ -137,7 +127,7 @@ function bindSecret(slot: string, platformVar: string, fallback: () => string) {
   const value = existing && existing.length > 0 ? existing : fallback();
   if (!existing) {
     console.warn(
-      `[dev:composer] ${platformVar} not set in this shell — using a local placeholder.`,
+      `[dev] ${platformVar} not set in this shell — using a local placeholder.`,
     );
   }
   process.env[configKey(ADDRESS, { owner: "service", name: slot })] = platformVar;
@@ -181,5 +171,5 @@ process.on("SIGINT", async () => {
   process.exit(0);
 });
 
-console.log("[dev:composer] booting open-chat through the Composer launcher...");
-await chatService.run(ADDRESS, () => import("../src/composer/start"));
+console.log("[dev] booting open-chat through the Composer service node...");
+await chatService.run(ADDRESS, () => import("../src/start"));

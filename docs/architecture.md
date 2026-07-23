@@ -4,7 +4,7 @@
 
 Open Chat is a prominent learning example for Prisma Streams. The system should make durable, resumable chat streaming visible in the codebase without hiding it behind a framework or a bespoke state manager.
 
-The app runs fully locally except for OpenRouter model calls. Local development uses Prisma Postgres through `prisma dev`. For durable streams, the app can either proxy to the Prisma Dev Streams endpoint via `STREAMS_URL` or start `@prisma/streams-local` itself when `STREAMS_URL` is omitted.
+The app runs fully locally except for OpenRouter model calls. The topology — database, durable streams, and the chat service — is wired by Prisma Composer (`module.ts`); the streams endpoint is a dependency of the chat service, injected locally (`bun run dev` starts the streams module's local stand-in) and in deployment alike, never configured by hand.
 
 ## Runtime Shape
 
@@ -131,13 +131,7 @@ Only authenticated users (including guests) can:
 
 ## Local Development
 
-Expected local services:
-
-- Postgres and Streams: `bun run db:dev`
-- Active local URLs: `DATABASE_URL=... bunx prisma dev ls`
-- App server: `bun --hot src/server/index.ts`
-
-During verification, Prisma Dev reported Postgres on `localhost:51297` and Streams on `http://127.0.0.1:51299/v1/stream/prisma-wal`, so the app used `STREAMS_URL=http://127.0.0.1:51299`. The repo must not commit `.env` or secrets. `.env.example` documents required variables.
+One command: `bun run dev`. It provisions a local Prisma Postgres (via `prisma dev`), applies the schema, starts the streams module's local stand-in, and boots the app through the same Composer service node a deploy uses. No `.env` is needed locally; export a real `OPENROUTER_API_KEY` to exercise generation. The repo must not commit `.env` or secrets; `.env.example` documents the deploy-time secret inputs.
 
 ## Sources
 

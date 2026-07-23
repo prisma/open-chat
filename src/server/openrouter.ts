@@ -1,4 +1,15 @@
-import { requireOpenRouterApiKey, env } from "./env";
+import service from "../service";
+
+// The common OpenRouter request headers: the API key secret plus the
+// attribution params, all from the service node.
+function openRouterHeaders() {
+  const { openrouterAppName, openrouterSiteUrl } = service.config();
+  return {
+    Authorization: `Bearer ${service.secrets().openrouterApiKey.expose()}`,
+    "HTTP-Referer": openrouterSiteUrl,
+    "X-Title": openrouterAppName,
+  };
+}
 
 type OpenRouterModelWire = {
   id: string;
@@ -60,11 +71,7 @@ function mergeOpenRouterModel(
 
 async function fetchOpenRouterModels(query = "") {
   const response = await fetch(`https://openrouter.ai/api/v1/models${query}`, {
-    headers: {
-      Authorization: `Bearer ${requireOpenRouterApiKey()}`,
-      "HTTP-Referer": env.OPENROUTER_SITE_URL,
-      "X-Title": env.OPENROUTER_APP_NAME,
-    },
+    headers: openRouterHeaders(),
   });
   if (!response.ok) {
     throw new Error(`OpenRouter models request failed: ${response.status}`);
@@ -271,10 +278,8 @@ export async function* streamSpeech(input: {
     const response = await fetch("https://openrouter.ai/api/v1/audio/speech", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${requireOpenRouterApiKey()}`,
+        ...openRouterHeaders(),
         "Content-Type": "application/json",
-        "HTTP-Referer": env.OPENROUTER_SITE_URL,
-        "X-Title": env.OPENROUTER_APP_NAME,
       },
       body: JSON.stringify({
         model: input.model,
@@ -357,10 +362,8 @@ export async function* streamChatCompletion(input: {
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${requireOpenRouterApiKey()}`,
+          ...openRouterHeaders(),
           "Content-Type": "application/json",
-          "HTTP-Referer": env.OPENROUTER_SITE_URL,
-          "X-Title": env.OPENROUTER_APP_NAME,
         },
         body: JSON.stringify({
           model: input.model,

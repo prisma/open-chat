@@ -11,8 +11,8 @@ import { envSecret } from "@prisma/composer-prisma-cloud";
 import { pnPostgres } from "@prisma/composer-prisma-cloud/prisma-next";
 import { storage } from "@prisma/composer-prisma-cloud/storage";
 import { streams } from "@prisma/composer-prisma-cloud/streams";
-import { chatData } from "./src/composer/data";
-import chatService from "./src/composer/service";
+import { chatData } from "./src/data";
+import chatService from "./src/service";
 
 export default module("open-chat", ({ provision }) => {
   const store = provision(storage());

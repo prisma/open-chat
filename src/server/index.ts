@@ -1,8 +1,8 @@
 // The HTML import must stay static even though production ignores it:
 // it's what makes the bundler emit the client assets into the deploy bundle.
 import index from "../client/index.html";
+import service from "../service";
 import { builtClientRoutes } from "./client-assets";
-import { env } from "./env";
 import { routeApi } from "./routes";
 
 // Presence of built client assets doubles as the production signal.
@@ -11,7 +11,8 @@ import { routeApi } from "./routes";
 const clientRoutes = await builtClientRoutes();
 
 const server = Bun.serve({
-  port: env.PORT,
+  // The reserved `port` param, resolved by the platform (or the dev script).
+  port: service.config().port,
   idleTimeout: 255,
   development: clientRoutes === null,
   routes: {

@@ -1,4 +1,7 @@
-// Deployment entrypoint: fix the working directory, then start the server.
+// The service's entry (src/service.ts's node() build): the deploy-printed
+// bootstrap imports the built form of this file via service.run(), and the
+// dev script (scripts/dev.ts) imports the source the same way. Fix the
+// working directory, then start the server.
 //
 // This file lives at src/ (not src/server/) on purpose: the bundler's
 // output tree mirrors the source tree relative to the entry's directory,

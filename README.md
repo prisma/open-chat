@@ -79,27 +79,47 @@ You need [Bun](https://bun.sh) ≥ 1.2 and an [OpenRouter API key](https://openr
 # 1. Install dependencies
 bun install
 
-# 2. Start local Prisma Postgres + Prisma Streams
-bun run db:dev
-
-# 3. Configure the environment
-cp .env.example .env
-#    – set DATABASE_URL and STREAMS_URL to the URLs printed by:
-#      DATABASE_URL=... bunx prisma dev ls
-#    – set OPENROUTER_API_KEY and a random BETTER_AUTH_SECRET
-
-# 4. Create the database tables
-bun run db:init
-
-# 5. Run the app
+# 2. Run the app — provisions a local Prisma Postgres (schema included) and
+#    a local Streams stand-in, then boots through the Composer service node.
+#    Export a real OPENROUTER_API_KEY first to exercise chat generation;
+#    without it, sign-in and history still work.
 bun run dev
 ```
 
 Open <http://localhost:3000> — you'll be signed in as a guest automatically and can start chatting.
 
-## Deploy to Prisma Compute
+## Deploy
 
-The live instance at [oss.chat](https://oss.chat) runs on [Prisma Compute](https://www.prisma.io) as two apps in one project: the chat server and the durable Streams service it talks to. Deploying your own takes a few minutes with the [Prisma CLI](https://www.npmjs.com/package/@prisma/cli).
+The whole application — chat server, durable Streams service, its storage
+tier, and the Postgres database — is one
+[Prisma Composer](https://github.com/prisma/composer) topology, declared in
+[`module.ts`](module.ts). One command provisions everything, applies the
+database migrations, and wires every connection:
+
+```bash
+# Platform credentials (a Prisma service token + workspace id) in the shell,
+# app secrets in ./.env — see .env.example
+PRISMA_DEPLOY_ENV=<path-to-platform-env> bun run deploy
+```
+
+There is nothing else to do. Three things the previous per-app deploy story
+required an operator to hand-carry are resolved by the platform:
+
+- **The schema.** The database is a contract-carrying `pnPostgres` resource;
+  the deploy applies [`migrations/`](migrations) to it before the chat
+  service starts.
+- **The app's own URL.** Better Auth and Stripe need the public origin; the
+  service reads it back with `service.origin()` — no placeholder-then-redeploy
+  dance.
+- **The streams credentials.** The platform mints the bearer key per streams
+  module and injects both ends; there is no `STREAMS_API_KEY` to invent and
+  copy between services.
+
+`bun run destroy` tears the stack down. Stage previews (`--stage`) give every
+branch its own isolated database and services.
+
+<details>
+<summary>Previous deployment story (per-app Prisma CLI targets)</summary>
 
 ```bash
 # 1. Sign in and create a project (this also provisions a Prisma Postgres database)
@@ -143,43 +163,23 @@ in order.
 
 That's it — the CLI builds locally, uploads, and the deployment is live in seconds. Secrets live only in Compute's env config, never in the repo. (On the very first deploy you don't know the app URL yet: deploy once, then set `APP_ORIGIN` to the printed URL and deploy again. Subsequent deploys keep their env vars.)
 
-### Upgrade the Streams service safely
+This is how the live instance at [oss.chat](https://oss.chat) was first
+deployed, driven by [`prisma.compute.ts`](prisma.compute.ts) and the
+standalone [`src/streams-app/`](src/streams-app) target. It is superseded by
+the Composer topology above.
 
-Prisma Streams acknowledges appends once they are durable in the service's local
-SQLite WAL. R2 durability happens after the background segmenter seals WAL rows
-into segment files and the uploader publishes those segments plus the stream
-manifest. `--bootstrap-from-r2` restores that published R2 state; it does not
-restore a still-local WAL tail.
+</details>
 
-Before replacing the production Streams instance, make sure recent writes have
-had time to publish:
+### Upgrading the Streams service safely
 
-```bash
-# 1. Deploy chat changes first, but do not intentionally generate writes while
-#    cutting over the Streams service.
-bunx --bun @prisma/cli@latest app deploy open-chat --prod --yes
-
-# 2. Wait at least one segment/upload window after the last write. This app's
-#    Streams wrapper sets DS_SEGMENT_MAX_INTERVAL_MS=5000 and uploader polling
-#    is fast, but 30 seconds is a practical safety window.
-sleep 30
-
-# 3. Deploy Streams. A fresh instance bootstraps from R2 before it starts
-#    listening; logs should end with "completed R2 restore" and
-#    "prisma-streams server listening".
-bunx --bun @prisma/cli@latest app deploy streams --prod --yes
-bunx --bun @prisma/cli@latest app logs --deployment <streams-deployment-id>
-
-# 4. Verify the stable Streams app URL returns 401 rather than "Service not
-#    found"; 401 is expected because the endpoint is bearer-auth protected.
-curl -i https://<streams-app-url>/health
-
-# 5. Reload an existing chat in the browser and confirm the messages replay
-#    with their durable checkmarks.
-```
-
-Keep `STREAMS_URL` pointed at the stable Streams app URL, not a deployment URL.
-That lets the chat server survive Streams redeploys without an env update.
+Prisma Streams acknowledges appends once they are durable in the service's
+local WAL; the durable tier receives them when the background segmenter seals
+WAL rows into segments and publishes them. A replaced instance restores from
+the published state, not a still-local WAL tail. So when a deploy replaces
+the Streams service: avoid generating writes during the cutover, and leave a
+~30-second window after the last write so the final segments publish. After
+the cutover, reloading an existing chat should replay every message with its
+durable checkmark.
 
 ## Project layout
 
@@ -196,12 +196,12 @@ That lets the chat server survive Streams redeploys without an env update.
 
 | Command | Purpose |
 | --- | --- |
-| `bun run dev` | App server with hot reload |
+| `bun run dev` | Local dev loop: provisions a local Postgres + Streams stand-in, then boots the app through the Composer service node (no hot reload) |
 | `bun run db:dev` | Local Prisma Postgres + Streams via `prisma dev` |
 | `bun run db:init` | Create tables from the Prisma Next contract |
 | `bun run db:generate` | Re-emit contract types after editing `contract.prisma` |
-| `bun run build` | Build both Prisma Compute targets |
-| `bun run build:chat` / `bun run build:streams` | Build one deployable target |
+| `bun run build` | Build the deployable server tree (`dist/server/`) |
+| `bun run build:streams` | Build the standalone Streams service target |
 | `bun test` / `bun run typecheck` | Tests and strict TypeScript |
 
 ## Learn more

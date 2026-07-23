@@ -1,25 +1,31 @@
 import { betterAuth } from "better-auth";
 import { anonymous } from "better-auth/plugins";
 import { db, pool } from "../prisma/db";
-import { env } from "./env";
+import service from "../service";
 import { appendMessageEvent, loadAllMessageEvents } from "./streams";
 
-// Social providers light up only when their credentials are configured;
-// the client asks /api/config which ones to offer.
+// Social sign-in is off in this topology (the service declares no OAuth
+// secrets); providers light up only if credentials appear in the plain
+// environment. The client asks /api/config which ones to offer.
+const githubClientId = process.env["GITHUB_CLIENT_ID"];
+const githubClientSecret = process.env["GITHUB_CLIENT_SECRET"];
+const googleClientId = process.env["GOOGLE_CLIENT_ID"];
+const googleClientSecret = process.env["GOOGLE_CLIENT_SECRET"];
+
 const socialProviders = {
-  ...(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET
+  ...(githubClientId && githubClientSecret
     ? {
         github: {
-          clientId: env.GITHUB_CLIENT_ID,
-          clientSecret: env.GITHUB_CLIENT_SECRET,
+          clientId: githubClientId,
+          clientSecret: githubClientSecret,
         },
       }
     : {}),
-  ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
+  ...(googleClientId && googleClientSecret
     ? {
         google: {
-          clientId: env.GOOGLE_CLIENT_ID,
-          clientSecret: env.GOOGLE_CLIENT_SECRET,
+          clientId: googleClientId,
+          clientSecret: googleClientSecret,
         },
       }
     : {}),
@@ -51,9 +57,13 @@ async function migrateGuestData(anonymousUserId: string, newUserId: string) {
   });
 }
 
+// The app's public URL is a platform-resolved property of the service
+// (ADR-0039), not operator config.
+const appOrigin = service.origin();
+
 export const auth = betterAuth({
-  baseURL: env.APP_ORIGIN,
-  secret: env.BETTER_AUTH_SECRET,
+  baseURL: appOrigin,
+  secret: service.secrets().betterAuthSecret.expose(),
   database: pool,
   emailAndPassword: {
     enabled: true,
@@ -66,7 +76,7 @@ export const auth = betterAuth({
       },
     }),
   ],
-  trustedOrigins: [env.APP_ORIGIN],
+  trustedOrigins: [appOrigin],
 });
 
 export type AuthSession = NonNullable<

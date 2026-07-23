@@ -15,7 +15,7 @@ import {
   type TopupOptionUsd,
 } from "../shared/billing";
 import { db } from "../prisma/db";
-import { env } from "./env";
+import service from "../service";
 import { HttpError } from "./http";
 import { appendStreamEvents } from "./streams";
 
@@ -40,10 +40,7 @@ async function logWebhook(record: Record<string, unknown>) {
 let stripeClient: Stripe | undefined;
 
 function getStripe() {
-  if (!env.STRIPE_SECRET_KEY) {
-    throw new HttpError(503, "Billing is not configured on this server");
-  }
-  stripeClient ??= new Stripe(env.STRIPE_SECRET_KEY);
+  stripeClient ??= new Stripe(service.secrets().stripeSecretKey.expose());
   return stripeClient;
 }
 
@@ -195,8 +192,8 @@ export async function createTopupCheckout(
       creditMicroUsd: String(quote.creditMicroUsd),
       feeMicroUsd: String(quote.feeMicroUsd),
     },
-    success_url: `${env.APP_ORIGIN}/?billing=success&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${env.APP_ORIGIN}/?billing=cancelled`,
+    success_url: `${service.origin()}/?billing=success&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${service.origin()}/?billing=cancelled`,
   });
 
   if (!session.url) throw new Error("Stripe did not return a checkout URL");
@@ -257,9 +254,6 @@ export async function confirmTopup(userId: string, sessionId: string) {
 
 /** Webhook path: credits even if the user never returns to the app. */
 export async function handleStripeWebhook(request: Request) {
-  if (!env.STRIPE_WEBHOOK_SECRET) {
-    throw new HttpError(501, "Stripe webhook secret is not configured");
-  }
   const stripe = getStripe();
   const body = await request.text();
   const signature = request.headers.get("stripe-signature");
@@ -273,7 +267,7 @@ export async function handleStripeWebhook(request: Request) {
     event = await stripe.webhooks.constructEventAsync(
       body,
       signature,
-      env.STRIPE_WEBHOOK_SECRET,
+      service.secrets().stripeWebhookSecret.expose(),
     );
   } catch {
     await logWebhook({

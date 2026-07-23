@@ -3,8 +3,8 @@
 // @prisma/streams-server is the full production runtime — SQLite WAL,
 // segmenting, R2 object-store upload, recovery, bearer-key auth — so this
 // entry only sets deployment defaults and delegates. (Local development
-// never runs this file: the chat server embeds @prisma/streams-local when
-// STREAMS_URL is unset.)
+// never runs this file: `bun run dev` starts the Composer streams module's
+// own local stand-in instead.)
 //
 // R2 is configured with DURABLE_STREAMS_R2_BUCKET / _ACCOUNT_ID /
 // _ACCESS_KEY_ID / _SECRET_ACCESS_KEY; the open-chat app authenticates
